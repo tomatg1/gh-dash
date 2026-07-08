@@ -130,6 +130,11 @@ func (t *TestSection) PrevRow() int {
 	panic("unimplemented")
 }
 
+// SetCurrRow implements section.Section.
+func (t *TestSection) SetCurrRow(int) int {
+	panic("unimplemented")
+}
+
 // ResetFilters implements section.Section.
 func (t *TestSection) ResetFilters() {
 	panic("unimplemented")
