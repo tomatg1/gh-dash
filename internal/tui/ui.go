@@ -884,9 +884,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Motion only arrives while a button is held (MouseModeCellMotion), so
-		// this is a drag: extend the selection.
+		// Motion only arrives while a button is held (MouseModeCellMotion).
 		if !m.mouseDown || msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+		// Sub-threshold jitter is a sloppy click, not a drag: ignore it so the
+		// release still selects/opens the row instead of leaving a lingering
+		// one-character selection highlight. Once a drag, always a drag.
+		if !m.dragged && !pastDragThreshold(m.sel.anchorX, m.sel.anchorY, msg.X, msg.Y) {
 			return m, nil
 		}
 		m.dragged = true
