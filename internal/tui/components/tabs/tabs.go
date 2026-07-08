@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -159,9 +160,22 @@ func (m *Model) UpdateTabTitles() {
 	m.carousel.SetCursor(oldCursor)
 }
 
+// isLocalVersion reports whether the version string is a dev or fork build
+// rather than a published release. git describe adds a "-N-g<sha>" or "-dirty"
+// suffix for anything past a tag, and the fork tags carry "local".
+func isLocalVersion(v string) bool {
+	return v == "" || v == "dev" ||
+		strings.Contains(v, "local") ||
+		strings.Contains(v, "dirty") ||
+		strings.Contains(v, "-g")
+}
+
 func (m *Model) viewLogo() string {
 	version := lipgloss.NewStyle().Foreground(m.ctx.Theme.SecondaryText).Render(m.ctx.Version)
-	if m.latestVersion != "" && m.ctx.Version != "dev" && m.ctx.Version != m.latestVersion {
+	// Don't nag "Update available!" on a local/fork build. It is ahead of the
+	// upstream release, so its version always differs from the latest tag --
+	// following that prompt would throw away the fork.
+	if m.latestVersion != "" && !isLocalVersion(m.ctx.Version) && m.ctx.Version != m.latestVersion {
 		version = lipgloss.JoinVertical(
 			lipgloss.Left,
 			version,
