@@ -68,6 +68,15 @@ type Model struct {
 	taskSpinner      spinner.Model
 	tasks            map[string]context.Task
 	positionOverride string // "" means no override, "right" or "bottom"
+
+	// Mouse drag-selection (see mouseselect.go).
+	mouseDown bool
+	dragged   bool
+	sel       textSelection
+	// frameBuf holds the last frame View rendered, so a drag-release can read
+	// the text under the selection. View has a value receiver and cannot write
+	// to the model, hence the pointer.
+	frameBuf *string
 }
 
 type Repositories struct {
@@ -82,6 +91,7 @@ func NewModel(location config.Location, repos Repositories) Model {
 		sidebar:     sidebar.NewModel(),
 		taskSpinner: taskSpinner,
 		tasks:       map[string]context.Task{},
+		frameBuf:    new(string),
 	}
 
 	version := "dev"
@@ -195,6 +205,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		log.Info("Key pressed", "key", msg.String())
 		m.ctx.Error = nil
+		// Any keystroke can move what's under the highlight, so drop it.
+		m.sel.active = false
 
 		if currSection != nil && (currSection.IsSearchFocused() ||
 			currSection.IsPromptConfirmationFocused()) {
@@ -835,6 +847,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button != tea.MouseLeft {
 			return m, nil
 		}
+		// A press only *starts* something. Whether it is a click or the first
+		// cell of a drag-selection is unknowable until the button comes back
+		// up, so nothing is actioned here.
+		m.mouseDown = true
+		m.dragged = false
+		m.sel = textSelection{
+			anchorX: msg.X, anchorY: msg.Y,
+			cursorX: msg.X, cursorY: msg.Y,
+		}
+		return m, nil
+
+	case tea.MouseMotionMsg:
+		// Motion only arrives while a button is held (MouseModeCellMotion), so
+		// this is a drag: extend the selection.
+		if !m.mouseDown || msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+		m.dragged = true
+		m.sel.active = true
+		m.sel.cursorX, m.sel.cursorY = msg.X, msg.Y
+		return m, nil
+
+	case tea.MouseReleaseMsg:
+		if !m.mouseDown {
+			return m, nil
+		}
+		m.mouseDown = false
+
+		// A drag is a text selection, never an action -- dragging back onto the
+		// press cell must not open a browser.
+		if m.dragged {
+			if m.sel.isEmpty() || m.frameBuf == nil {
+				m.sel.active = false
+				return m, nil
+			}
+			text := selectedText(*m.frameBuf, m.sel)
+			if text == "" {
+				m.sel.active = false
+				return m, nil
+			}
+			if err := copyToClipboard(text); err != nil {
+				cmds = append(cmds, m.notifyErr(fmt.Sprintf("Failed copying to clipboard %v", err)))
+			} else {
+				cmds = append(cmds, m.notify(fmt.Sprintf("Copied %d characters", len(text))))
+			}
+			return m, tea.Batch(cmds...)
+		}
+
+		// Press and release on the same cell: a plain click.
+		m.sel.active = false
+
 		if zone.Get("donate").InBounds(msg) {
 			log.Info("Donate clicked", "msg", msg)
 			openCmd := func() tea.Msg {
@@ -865,25 +928,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// Clicking a row selects it; clicking the already-selected row opens it
-		// on GitHub. Opening on the second click rather than the first keeps a
-		// stray click from launching a browser.
+		// Clicking a row selects it and opens it on GitHub.
 		if currSection != nil {
 			for i := range currSection.NumRows() {
 				if !zone.Get(table.RowZoneID(i)).InBounds(msg) {
 					continue
 				}
-				if currSection.CurrRow() == i {
-					cmds = append(cmds, m.openBrowser())
-				} else {
-					currSection.SetCurrRow(i)
-					cmds = append(cmds, m.onViewedRowChanged())
-				}
+				currSection.SetCurrRow(i)
+				cmds = append(cmds, m.onViewedRowChanged(), m.openBrowser())
 				return m, tea.Batch(cmds...)
 			}
 		}
 
 	case tea.MouseWheelMsg:
+		// Rows move under the pointer; a kept highlight would mark the wrong text.
+		m.sel.active = false
 		if currSection == nil {
 			return m, nil
 		}
@@ -1035,8 +1094,15 @@ func (m Model) View() tea.View {
 		s.WriteString(m.footer.View())
 	}
 
+	// Keep the un-highlighted frame: a drag-release reads the selected text
+	// from it, and highlighting is purely a presentation pass on top.
+	frame := zone.Scan(s.String())
+	if m.frameBuf != nil {
+		*m.frameBuf = frame
+	}
+
 	layers := []*lipgloss.Layer{
-		lipgloss.NewLayer(zone.Scan(s.String())),
+		lipgloss.NewLayer(highlightFrame(frame, m.sel)),
 	}
 
 	if currSection != nil {
