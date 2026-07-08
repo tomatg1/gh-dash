@@ -237,9 +237,12 @@ func init() {
 			log.Warn("did not find github repo at current path")
 		}
 
-		if err != nil {
-			log.Fatal("Cannot parse debug flag", err)
-		}
+		// NOTE: no fatal on err here. It belongs to
+		// getCurrentGitAndGitHubRepos() above, which is already logged as an
+		// error and handled by the gitRepo/ghRepo nil checks -- running outside
+		// a git repo is legitimate. Re-checking it here (under a copy-pasted
+		// "Cannot parse debug flag" message) killed every invocation whose cwd
+		// was not a repo.
 
 		zone.NewGlobal()
 
