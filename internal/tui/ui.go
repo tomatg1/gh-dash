@@ -40,6 +40,7 @@ import (
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/reposection"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/sidebar"
+	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tabs"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/tasks"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
@@ -849,6 +850,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return nil
 			}
 			cmds = append(cmds, openCmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Clicking a tab switches to that section.
+		for i := range m.getCurrentViewSections() {
+			if !zone.Get(tabs.TabZoneID(i)).InBounds(msg) {
+				continue
+			}
+			if s := m.getSectionAt(i); s != nil {
+				m.setCurrSectionId(s.GetId())
+				cmds = append(cmds, m.onViewedRowChanged())
+			}
+			return m, tea.Batch(cmds...)
+		}
+
+		// Clicking a row selects it; clicking the already-selected row opens it
+		// on GitHub. Opening on the second click rather than the first keeps a
+		// stray click from launching a browser.
+		if currSection != nil {
+			for i := range currSection.NumRows() {
+				if !zone.Get(table.RowZoneID(i)).InBounds(msg) {
+					continue
+				}
+				if currSection.CurrRow() == i {
+					cmds = append(cmds, m.openBrowser())
+				} else {
+					currSection.SetCurrRow(i)
+					cmds = append(cmds, m.onViewedRowChanged())
+				}
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+	case tea.MouseWheelMsg:
+		if currSection == nil {
+			return m, nil
+		}
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			currSection.PrevRow()
+			cmds = append(cmds, m.onViewedRowChanged())
+		case tea.MouseWheelDown:
+			currSection.NextRow()
+			cmds = append(cmds, m.onViewedRowChanged())
 		}
 
 	case tea.WindowSizeMsg:

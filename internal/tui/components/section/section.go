@@ -168,6 +168,7 @@ type Table interface {
 	CurrRow() int
 	NextRow() int
 	PrevRow() int
+	SetCurrRow(int) int
 	FirstItem() int
 	LastItem() int
 	FetchNextPageSectionRows() []tea.Cmd
@@ -325,6 +326,11 @@ func (m *BaseModel) NextRow() int {
 
 func (m *BaseModel) PrevRow() int {
 	return m.Table.PrevItem()
+}
+
+// SetCurrRow selects an absolute row index. Used by mouse clicks.
+func (m *BaseModel) SetCurrRow(id int) int {
+	return m.Table.SetCurrItem(id)
 }
 
 func (m *BaseModel) FirstItem() int {

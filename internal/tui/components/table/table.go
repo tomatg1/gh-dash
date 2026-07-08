@@ -152,6 +152,20 @@ func (m *Model) LastItem() int {
 	return currItem
 }
 
+// RowZoneID is the bubblezone id for a table row. It lives here so the renderer
+// that marks the zone and the click handler that reads it cannot drift apart.
+func RowZoneID(rowID int) string {
+	return fmt.Sprintf("row-%d", rowID)
+}
+
+// SetCurrItem selects an absolute row index. Used by mouse clicks.
+func (m *Model) SetCurrItem(id int) int {
+	currItem := m.rowsViewport.SetCurrItem(id)
+	m.SyncViewPortContent()
+
+	return currItem
+}
+
 func (m *Model) cacheColumnWidths() {
 	columns := m.renderHeaderColumns()
 	for i, col := range columns {
@@ -369,10 +383,12 @@ func (m *Model) renderRow(rowId int, headerColumns []string) string {
 		headerColId++
 	}
 
-	return m.ctx.Styles.Table.RowStyle.
+	// Mark outside the style, not inside: MaxWidth truncates, and a zone marker
+	// sliced in half would never be scanned back out.
+	return common.MarkZone(RowZoneID(rowId), m.ctx.Styles.Table.RowStyle.
 		BorderBottom(m.ctx.Config.Theme.Ui.Table.ShowSeparator).
 		MaxWidth(m.dimensions.Width).
-		Render(lipgloss.JoinHorizontal(lipgloss.Top, renderedColumns...))
+		Render(lipgloss.JoinHorizontal(lipgloss.Top, renderedColumns...)))
 }
 
 func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {

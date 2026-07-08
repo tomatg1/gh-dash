@@ -16,6 +16,13 @@ import (
 	"github.com/dlvhdr/gh-dash/v4/internal/utils"
 )
 
+// TabZoneID is the bubblezone id for a section tab. It lives here so the
+// renderer that marks the zone and the click handler that reads it cannot
+// drift apart.
+func TabZoneID(sectionIdx int) string {
+	return fmt.Sprintf("tab-%d", sectionIdx)
+}
+
 type SectionTab struct {
 	section section.Section
 	spinner spinner.Model
@@ -142,7 +149,9 @@ func (m *Model) UpdateTabTitles() {
 				utils.ShortNumber(tab.section.GetTotalCount()))
 		}
 
-		titles = append(titles, title)
+		// bubblezone markers are private ANSI CSI sequences, so lipgloss treats
+		// them as zero-width and the carousel's layout math is unaffected.
+		titles = append(titles, common.MarkZone(TabZoneID(i), title))
 	}
 
 	oldCursor := m.carousel.Cursor()
