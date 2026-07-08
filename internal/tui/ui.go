@@ -962,6 +962,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Footer: the help toggle and the PRs/Issues/Notifications switcher.
+		if zone.Get(footer.ZoneHelp).InBounds(msg) {
+			m.footer.ShowAll = !m.footer.ShowAll
+			return m, tea.Batch(cmds...)
+		}
+		for _, view := range []config.ViewType{
+			config.PRsView, config.IssuesView, config.NotificationsView,
+		} {
+			if zone.Get(footer.ViewZoneID(view)).InBounds(msg) {
+				cmds = append(cmds, m.setSelectedView(view))
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		// Preview detail tabs (Overview / Activity / Commits / Checks / Files).
+		if m.sidebar.IsOpen {
+			for i := range prview.NumTabs() {
+				if !zone.Get(prview.TabZoneID(i)).InBounds(msg) {
+					continue
+				}
+				m.prView.SetTabIdx(i)
+				cmds = append(cmds, m.syncSidebar())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		// Row clicks. The sub-regions of a row (its number, its icons) mean
 		// something more specific than "this row", so they are tested first.
 		// A bare click anywhere else only selects; opening needs a double-click.
@@ -1850,6 +1876,27 @@ func (m *Model) switchSelectedView() tea.Cmd {
 		}
 	}
 
+	return m.applyViewChange()
+}
+
+// setSelectedView jumps straight to a view (from a footer click) rather than
+// cycling. A click on the already-active view is a no-op.
+func (m *Model) setSelectedView(target config.ViewType) tea.Cmd {
+	if m.ctx.View == target {
+		return nil
+	}
+	if m.ctx.View == config.NotificationsView {
+		keys.SetNotificationSubject(keys.NotificationSubjectNone)
+		m.notificationView.ClearSubject()
+	}
+	m.ctx.View = target
+
+	return m.applyViewChange()
+}
+
+// applyViewChange resyncs sections and layout after m.ctx.View has been set,
+// and is shared by the cycle (keyboard) and the direct jump (footer click).
+func (m *Model) applyViewChange() tea.Cmd {
 	m.syncMainContentDimensions()
 	m.setCurrSectionId(m.getCurrentViewDefaultSection())
 

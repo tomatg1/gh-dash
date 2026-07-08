@@ -12,6 +12,7 @@ import (
 
 	"github.com/dlvhdr/gh-dash/v4/internal/config"
 	"github.com/dlvhdr/gh-dash/v4/internal/git"
+	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/keys"
@@ -19,6 +20,28 @@ import (
 )
 
 const viewSeparator = " │ "
+
+// Clickable zones in the footer.
+const (
+	ZoneHelp       = "footer-help"
+	ZoneViewPRs    = "footer-view-prs"
+	ZoneViewIssues = "footer-view-issues"
+	ZoneViewNotifs = "footer-view-notifications"
+)
+
+// ViewZoneID is the footer zone for a given view button.
+func ViewZoneID(view config.ViewType) string {
+	switch view {
+	case config.PRsView:
+		return ZoneViewPRs
+	case config.IssuesView:
+		return ZoneViewIssues
+	case config.NotificationsView:
+		return ZoneViewNotifs
+	}
+
+	return ""
+}
 
 type Model struct {
 	ctx             *context.ProgramContext
@@ -50,11 +73,11 @@ func (m Model) View() string {
 		footer = lipgloss.NewStyle().
 			Render("Really quit? (Press y/enter to confirm, any other key to cancel)")
 	} else {
-		helpIndicator := lipgloss.NewStyle().
+		helpIndicator := common.MarkZone(ZoneHelp, lipgloss.NewStyle().
 			Background(m.ctx.Theme.FaintText).
 			Foreground(m.ctx.Theme.SelectedBackground).
 			Padding(0, 1).
-			Render("? help")
+			Render("? help"))
 		donationIndicator := zone.Mark("donate", lipgloss.NewStyle().
 			Background(m.ctx.Theme.SelectedBackground).
 			Foreground(m.ctx.Theme.WarningText).
@@ -137,6 +160,7 @@ func (m *Model) renderViewButton(view config.ViewType) string {
 		label = " Issues"
 	}
 
+	var rendered string
 	if isActive {
 		// Active: colored icon + prominent background
 		// Use gold for notifications bell, green for others
@@ -152,13 +176,17 @@ func (m *Model) renderViewButton(view config.ViewType) string {
 			Background(m.ctx.Styles.ViewSwitcher.ActiveView.GetBackground()).
 			Bold(true)
 		if label != "" {
-			return activeStyle.Render(icon) + activeStyle.Render(label)
+			rendered = activeStyle.Render(icon) + activeStyle.Render(label)
+		} else {
+			rendered = activeStyle.Render(icon)
 		}
-		return activeStyle.Render(icon)
+	} else {
+		// Inactive: faint styling
+		rendered = m.ctx.Styles.ViewSwitcher.InactiveView.Render(icon + label)
 	}
 
-	// Inactive: faint styling
-	return m.ctx.Styles.ViewSwitcher.InactiveView.Render(icon + label)
+	// Clicking a view button switches to that view.
+	return common.MarkZone(ViewZoneID(view), rendered)
 }
 
 func (m *Model) renderViewSwitcher(ctx *context.ProgramContext) string {
