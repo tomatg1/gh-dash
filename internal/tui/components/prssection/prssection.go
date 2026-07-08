@@ -414,7 +414,7 @@ func (m Model) BuildRows() []table.Row {
 		}
 		rows = append(
 			rows,
-			prModel.ToTableRow(currItem == i),
+			prModel.ToTableRow(i, currItem == i),
 		)
 	}
 
