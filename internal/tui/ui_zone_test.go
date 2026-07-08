@@ -2,6 +2,8 @@ package tui
 
 import (
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 	"testing"
 	"time"
 
@@ -301,6 +303,36 @@ func TestMouseClick_SloppyClickStillSelects(t *testing.T) {
 			require.Equal(t, 1, m.prs[0].CurrRow(), "the clicked row is selected")
 		})
 	}
+}
+
+// Selecting a new row must clear the previous row's highlight immediately.
+// BuildRows() bakes the selected styling into each row, so a click that only
+// moved the viewport cursor left the old row looking selected until an async
+// rebuild "caught up" seconds later.
+func TestMouseClick_ClearsPriorRowHighlight(t *testing.T) {
+	m, _ := zoneTestModel(t)
+	_ = m.View()
+	r0 := waitForZone(t, table.RowZoneID(0))
+	r1 := waitForZone(t, table.RowZoneID(1))
+
+	rowLine := func(v, needle string) string {
+		for _, ln := range strings.Split(v, "\n") {
+			if strings.Contains(ansi.Strip(ln), needle) {
+				return ln
+			}
+		}
+		return ""
+	}
+
+	m = click(t, m, r0.StartX+5, r0.StartY)
+	row0Selected := rowLine(m.View().Content, "first pr")
+
+	m = click(t, m, r1.StartX+5, r1.StartY)
+	row0AfterMovingAway := rowLine(m.View().Content, "first pr")
+
+	require.Equal(t, 1, m.prs[0].CurrRow())
+	require.NotEqual(t, row0Selected, row0AfterMovingAway,
+		"row 0 must re-render once row 1 is selected, not keep its baked highlight")
 }
 
 // Past the threshold it is a real drag: it selects and copies.
