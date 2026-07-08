@@ -257,6 +257,65 @@ func TestMouseClick_IconDoesNotArmDoubleClick(t *testing.T) {
 	require.Equal(t, -1, m.lastClickRow, "clicking an icon leaves no pending pair")
 }
 
+// dragClick sends press, a motion to (x+dx, y+dy), then release there.
+func dragClick(t *testing.T, m Model, x, y, dx, dy int) (Model, string) {
+	t.Helper()
+
+	var copied string
+	orig := copyToClipboard
+	copyToClipboard = func(s string) error { copied = s; return nil }
+	t.Cleanup(func() { copyToClipboard = orig })
+
+	up, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	m = up.(Model)
+	up, _ = m.Update(tea.MouseMotionMsg{X: x + dx, Y: y + dy, Button: tea.MouseLeft})
+	m = up.(Model)
+	up, _ = m.Update(tea.MouseReleaseMsg{X: x + dx, Y: y + dy, Button: tea.MouseLeft})
+
+	return up.(Model), copied
+}
+
+// The reported bug: a trackpad tap jitters a cell or two, and that used to
+// register as a drag -- copying a stray character and leaving a lingering
+// highlight instead of selecting the row.
+func TestMouseClick_SloppyClickStillSelects(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		dx, dy int
+	}{
+		{"1 cell right", 1, 0},
+		{"2 cells right", 2, 0},
+		{"1 cell down", 0, 1},
+		{"1 diagonal", 1, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, started := zoneTestModel(t)
+			_ = m.View()
+			row := waitForZone(t, table.RowZoneID(1))
+
+			m, copied := dragClick(t, m, row.StartX+10, row.StartY, tc.dx, tc.dy)
+
+			require.False(t, m.sel.active, "no lingering selection after a sloppy click")
+			require.Empty(t, copied, "a sloppy click must not copy anything")
+			require.False(t, openedBrowser(started), "a single sloppy click only selects")
+			require.Equal(t, 1, m.prs[0].CurrRow(), "the clicked row is selected")
+		})
+	}
+}
+
+// Past the threshold it is a real drag: it selects and copies.
+func TestMouseDrag_PastThresholdSelects(t *testing.T) {
+	m, started := zoneTestModel(t)
+	_ = m.View()
+	row := waitForZone(t, table.RowZoneID(0))
+
+	m, copied := dragClick(t, m, 0, row.StartY, 40, 0) // well past dragThresholdX
+
+	require.True(t, m.sel.active, "a real drag shows a selection")
+	require.NotEmpty(t, copied, "a real drag copies")
+	require.False(t, openedBrowser(started), "a drag never opens")
+}
+
 // A drag selects text. It must copy, and it must never open a browser.
 func TestMouseDrag_SelectsTextAndNeverOpens(t *testing.T) {
 	m, started := zoneTestModel(t)

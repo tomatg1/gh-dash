@@ -10,6 +10,31 @@ import (
 // copyToClipboard is a seam so tests don't scribble on the user's clipboard.
 var copyToClipboard = clipboard.WriteAll
 
+// A press that moves this little is a click, not a drag. Trackpad taps almost
+// always jitter a cell or two; without a threshold every click would register a
+// stray one-character selection and leave a lingering highlight on the row.
+// Vertical counts double: rows are two cells tall, so one row of travel is a
+// bigger intent than one column.
+const (
+	dragThresholdX = 3
+	dragThresholdY = 2
+)
+
+// pastDragThreshold reports whether the pointer has moved far enough from the
+// press point to count as a drag rather than a click.
+func pastDragThreshold(anchorX, anchorY, x, y int) bool {
+	dx := x - anchorX
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := y - anchorY
+	if dy < 0 {
+		dy = -dy
+	}
+
+	return dx >= dragThresholdX || dy >= dragThresholdY
+}
+
 // Reverse video. Explicit SGR rather than lipgloss so the span's width is
 // provably unchanged -- these are zero-width control sequences.
 const (
