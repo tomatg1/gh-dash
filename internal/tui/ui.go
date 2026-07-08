@@ -76,6 +76,11 @@ type Model struct {
 	// Double-click bookkeeping (see mouseclick.go).
 	lastClickRow int
 	lastClickAt  time.Time
+	// Draggable preview divider (see separator.go, layoutstate.go).
+	resizingSeparator bool
+	// previewHeightOverride is 0 when the configured default should win.
+	previewHeightOverride int
+	layoutStateKey        string
 	// frameBuf holds the last frame View rendered, so a drag-release can read
 	// the text under the selection. View has a value receiver and cannot write
 	// to the model, hence the pointer.
@@ -98,6 +103,10 @@ func NewModel(location config.Location, repos Repositories) Model {
 		// -1, not 0: a zero value would look like "row 0 was just clicked".
 		lastClickRow: -1,
 	}
+
+	// Restore where this dashboard's divider was last left.
+	m.layoutStateKey = layoutKey(location.ConfigFlag, location.RepoPath)
+	m.previewHeightOverride = loadPreviewHeight(m.layoutStateKey)
 
 	version := "dev"
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Sum != "" {
@@ -852,6 +861,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button != tea.MouseLeft {
 			return m, nil
 		}
+		// Pressing on the divider starts a resize, not a text selection.
+		if m.onSeparator(msg.Y) {
+			m.resizingSeparator = true
+			return m, nil
+		}
 		// A press only *starts* something. Whether it is a click or the first
 		// cell of a drag-selection is unknowable until the button comes back
 		// up, so nothing is actioned here.
@@ -864,6 +878,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMotionMsg:
+		if m.resizingSeparator {
+			if msg.Button == tea.MouseLeft {
+				m.setPreviewHeightFromSeparatorY(msg.Y)
+			}
+			return m, nil
+		}
 		// Motion only arrives while a button is held (MouseModeCellMotion), so
 		// this is a drag: extend the selection.
 		if !m.mouseDown || msg.Button != tea.MouseLeft {
@@ -875,6 +895,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseReleaseMsg:
+		// Checked before the mouseDown guard: a separator press never arms one.
+		if m.resizingSeparator {
+			m.resizingSeparator = false
+			if err := savePreviewHeight(m.layoutStateKey, m.previewHeightOverride); err != nil {
+				log.Debug("could not persist the preview height", "err", err)
+			}
+			return m, nil
+		}
+
 		if !m.mouseDown {
 			return m, nil
 		}
@@ -1341,11 +1370,22 @@ func (m *Model) syncMainContentDimensions() {
 		// Subtract border height: lipgloss Height() sets content height,
 		// and BorderTop adds an extra row outside of that.
 		availableHeight := m.getBaseContentHeight() - m.ctx.Styles.Sidebar.BorderWidth
-		h := m.ctx.Config.Defaults.Preview.Height
-		if h > 0 && h < 1 {
-			h *= float64(availableHeight)
+
+		previewHeight := 0
+		if m.previewHeightOverride > 0 {
+			// The user dragged the divider (this run, or in a previous one).
+			// Clamp: a remembered height from a taller terminal must not swallow
+			// the whole list.
+			previewHeight = clampSel(m.previewHeightOverride, 1, max(availableHeight-1, 1))
+		} else {
+			h := m.ctx.Config.Defaults.Preview.Height
+			if h > 0 && h < 1 {
+				h *= float64(availableHeight)
+			}
+			previewHeight = int(h)
 		}
-		m.ctx.DynamicPreviewHeight = min(int(h), availableHeight)
+
+		m.ctx.DynamicPreviewHeight = min(previewHeight, availableHeight)
 		m.ctx.MainContentHeight = availableHeight - m.ctx.DynamicPreviewHeight
 		m.ctx.DynamicPreviewWidth = m.ctx.ScreenWidth
 	} else {
