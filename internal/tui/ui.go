@@ -965,6 +965,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Footer: the help toggle and the PRs/Issues/Notifications switcher.
 		if zone.Get(footer.ZoneHelp).InBounds(msg) {
 			m.footer.ShowAll = !m.footer.ShowAll
+			// Reflow now. Expanding/collapsing help changes the content height,
+			// and a mouse branch returns early -- skipping the syncProgramContext
+			// at the end of Update that the keyboard path falls through to. Both
+			// syncs together are what resize the section viewports; without them
+			// the frame grew, the "? help" target moved, and the panes weren't
+			// restored on close.
+			m.syncMainContentDimensions()
+			m.syncProgramContext()
 			return m, tea.Batch(cmds...)
 		}
 		for _, view := range []config.ViewType{
@@ -972,6 +980,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} {
 			if zone.Get(footer.ViewZoneID(view)).InBounds(msg) {
 				cmds = append(cmds, m.setSelectedView(view))
+				m.syncProgramContext()
 				return m, tea.Batch(cmds...)
 			}
 		}
