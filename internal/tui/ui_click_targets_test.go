@@ -31,6 +31,54 @@ func TestFooterClick_HelpTogglesFullHelp(t *testing.T) {
 	require.False(t, m.footer.ShowAll, "clicking again collapses it")
 }
 
+// The regression the user hit: expanding help must not move the "? help" target,
+// or clicking the same spot to close it misses. Help renders above the bar, so
+// the bar's row is unchanged.
+func TestFooterClick_HelpTargetStaysPut(t *testing.T) {
+	m, _ := zoneTestModel(t)
+
+	_ = m.View()
+	collapsed := waitForZone(t, footer.ZoneHelp)
+	collapsedY := collapsed.StartY
+
+	m = click(t, m, collapsed.StartX+1, collapsedY)
+	require.True(t, m.footer.ShowAll)
+
+	_ = m.View()
+	expanded := waitForZone(t, footer.ZoneHelp)
+	require.Equal(t, collapsedY, expanded.StartY,
+		"the '? help' bar must stay on the same row when help expands")
+
+	// So the very same coordinate closes it.
+	m = click(t, m, collapsed.StartX+1, collapsedY)
+	require.False(t, m.footer.ShowAll, "the same spot must toggle it back off")
+}
+
+// Toggling help resizes the content, and closing must restore it exactly --
+// this is the "restore the size of the lower pane" the user asked for.
+func TestFooterClick_HelpRestoresLayoutOnClose(t *testing.T) {
+	m := previewOpenModel(t)
+
+	_ = m.View()
+	beforeMain := m.ctx.MainContentHeight
+	beforePreview := m.ctx.DynamicPreviewHeight
+	require.Positive(t, beforeMain)
+
+	z := waitForZone(t, footer.ZoneHelp)
+	m = click(t, m, z.StartX+1, z.StartY) // open
+	require.True(t, m.footer.ShowAll)
+	require.Less(t, m.ctx.MainContentHeight, beforeMain,
+		"expanding help must eat content height (proving the reflow ran on click)")
+
+	_ = m.View()
+	z = waitForZone(t, footer.ZoneHelp)
+	m = click(t, m, z.StartX+1, z.StartY) // close
+
+	require.False(t, m.footer.ShowAll)
+	require.Equal(t, beforeMain, m.ctx.MainContentHeight, "list height restored")
+	require.Equal(t, beforePreview, m.ctx.DynamicPreviewHeight, "preview height restored")
+}
+
 // ── footer: view switcher ────────────────────────────────────────────────────
 
 func TestFooterClick_ViewSwitcherSwitchesView(t *testing.T) {

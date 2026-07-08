@@ -116,7 +116,11 @@ func (m Model) View() string {
 	if m.ShowAll {
 		keymap := keys.CreateKeyMapForView(m.ctx.View)
 		fullHelp := m.help.View(keymap)
-		return lipgloss.JoinVertical(lipgloss.Top, footer, fullHelp)
+		// Help renders ABOVE the status bar, not below it, so the bar -- and
+		// with it the "? help" toggle and the view switcher -- stays pinned to
+		// the bottom line. A toggle target that doesn't move is a toggle you can
+		// click twice in the same spot to open and close.
+		return lipgloss.JoinVertical(lipgloss.Top, fullHelp, footer)
 	}
 
 	return footer
