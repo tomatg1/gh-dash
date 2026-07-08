@@ -170,8 +170,22 @@ func isLocalVersion(v string) bool {
 		strings.Contains(v, "-g")
 }
 
+// wrapVersionAtHyphen splits the version at its first hyphen so a value like
+// "v4.25.0-local.2" stacks as two lines ("v4.25.0" / "-local.2") beside the
+// two-line logo, instead of running off to the right. Splitting only at the
+// first hyphen keeps it to at most two lines even for a git-describe suffix.
+func wrapVersionAtHyphen(v string) string {
+	if i := strings.Index(v, "-"); i >= 0 {
+		return v[:i] + "\n" + v[i:]
+	}
+
+	return v
+}
+
 func (m *Model) viewLogo() string {
-	version := lipgloss.NewStyle().Foreground(m.ctx.Theme.SecondaryText).Render(m.ctx.Version)
+	version := lipgloss.NewStyle().
+		Foreground(m.ctx.Theme.SecondaryText).
+		Render(wrapVersionAtHyphen(m.ctx.Version))
 	// Don't nag "Update available!" on a local/fork build. It is ahead of the
 	// upstream release, so its version always differs from the latest tag --
 	// following that prompt would throw away the fork.
