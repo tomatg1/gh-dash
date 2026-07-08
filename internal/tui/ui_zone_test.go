@@ -11,6 +11,7 @@ import (
 
 	"github.com/dlvhdr/gh-dash/v4/internal/config"
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
+	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branchsidebar"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/footer"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/issueview"
@@ -82,8 +83,14 @@ func zoneTestModel(t *testing.T) (Model, *[]string) {
 		time.Now(),
 	)
 	prSection.Prs = []prrow.Data{
-		{Primary: &data.PullRequestData{Number: 1, Title: "first pr", State: "OPEN"}},
-		{Primary: &data.PullRequestData{Number: 2, Title: "second pr", State: "OPEN"}},
+		{Primary: &data.PullRequestData{
+			Number: 1, Title: "first pr", State: "OPEN",
+			Url: "https://github.com/o/r/pull/1",
+		}},
+		{Primary: &data.PullRequestData{
+			Number: 2, Title: "second pr", State: "OPEN",
+			Url: "https://github.com/o/r/pull/2",
+		}},
 	}
 	prSection.Table.SetRows(prSection.BuildRows())
 
@@ -99,6 +106,7 @@ func zoneTestModel(t *testing.T) (Model, *[]string) {
 		branchSidebar:    branchsidebar.NewModel(ctx),
 		notificationView: notificationview.NewModel(ctx),
 		frameBuf:         new(string),
+		lastClickRow:     -1,
 	}
 	m.tabs.SetSections(m.prs)
 	m.syncMainContentDimensions()
@@ -157,21 +165,96 @@ func TestMousePress_AloneDoesNothing(t *testing.T) {
 	require.True(t, m.mouseDown, "press should arm a potential drag")
 }
 
-// Press and release on the same cell = a plain click = select the row and open it.
-func TestMouseClick_PressThenReleaseOpensRow(t *testing.T) {
+// click sends a press+release on the same cell, i.e. a plain click.
+func click(t *testing.T, m Model, x, y int) Model {
+	t.Helper()
+
+	updated, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+
+	return updated.(Model)
+}
+
+// The refinement: a bare click selects the row but must NOT open a browser.
+func TestMouseClick_SingleClickSelectsWithoutOpening(t *testing.T) {
 	m, started := zoneTestModel(t)
 	_ = m.View()
 	row1 := waitForZone(t, table.RowZoneID(1))
 
-	x, y := row1.StartX+1, row1.StartY
-	updated, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
-	m = updated.(Model)
-	updated, _ = m.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
-	m = updated.(Model)
+	m = click(t, m, row1.StartX+1, row1.StartY)
 
 	require.Equal(t, 1, m.prs[0].CurrRow(), "click should select the clicked row")
-	require.True(t, openedBrowser(started), "click should open the PR")
+	require.False(t, openedBrowser(started), "a bare click must not open a browser")
 	require.False(t, m.sel.active, "a click leaves no selection behind")
+}
+
+// Two clicks on the same row inside the window open it.
+func TestMouseClick_DoubleClickOpensRow(t *testing.T) {
+	m, started := zoneTestModel(t)
+
+	base := time.Unix(1700000000, 0)
+	now := base
+	orig := nowFunc
+	nowFunc = func() time.Time { return now }
+	t.Cleanup(func() { nowFunc = orig })
+
+	_ = m.View()
+	row1 := waitForZone(t, table.RowZoneID(1))
+	x, y := row1.StartX+1, row1.StartY
+
+	m = click(t, m, x, y)
+	require.False(t, openedBrowser(started), "first click only selects")
+
+	now = base.Add(100 * time.Millisecond)
+	m = click(t, m, x, y)
+
+	require.Equal(t, 1, m.prs[0].CurrRow())
+	require.True(t, openedBrowser(started), "double-click should open the PR")
+}
+
+// Clicking the "#1234" opens the PR on the first click, no drag, no pairing.
+func TestMouseClick_OnPRNumberOpensImmediately(t *testing.T) {
+	m, started := zoneTestModel(t)
+	_ = m.View()
+
+	num := waitForZone(t, common.RowTargetZoneID(1, common.ZoneNumber))
+	m = click(t, m, num.StartX, num.StartY)
+
+	require.Equal(t, 1, m.prs[0].CurrRow(), "clicking the number also selects the row")
+	require.True(t, openedBrowser(started), "clicking the number opens the PR")
+}
+
+// Icon cells are individually clickable. The exact sub-page URL is pinned by
+// TestRowClickAction_IconsOpenTheirSubPages; here we prove the zone dispatches.
+func TestMouseClick_OnIconsOpens(t *testing.T) {
+	for _, tc := range []struct{ name, target string }{
+		{"ci", common.ZoneCi},
+		{"review", common.ZoneReview},
+		{"comments", common.ZoneComments},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, started := zoneTestModel(t)
+			_ = m.View()
+
+			z := waitForZone(t, common.RowTargetZoneID(1, tc.target))
+			m = click(t, m, z.StartX, z.StartY)
+
+			require.Equal(t, 1, m.prs[0].CurrRow(), "icon click selects its row")
+			require.True(t, openedBrowser(started), "icon click opens a page")
+		})
+	}
+}
+
+// An icon click must not arm a double-click pairing on the row.
+func TestMouseClick_IconDoesNotArmDoubleClick(t *testing.T) {
+	m, _ := zoneTestModel(t)
+	_ = m.View()
+
+	z := waitForZone(t, common.RowTargetZoneID(1, common.ZoneCi))
+	m = click(t, m, z.StartX, z.StartY)
+
+	require.Equal(t, -1, m.lastClickRow, "clicking an icon leaves no pending pair")
 }
 
 // A drag selects text. It must copy, and it must never open a browser.

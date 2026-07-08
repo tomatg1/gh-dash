@@ -185,7 +185,7 @@ func (pr *PullRequest) renderTitle() string {
 	)
 }
 
-func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
+func (pr *PullRequest) renderExtendedTitle(rowIdx int, isSelected bool) string {
 	baseStyle := lipgloss.NewStyle()
 	if isSelected {
 		baseStyle = baseStyle.Foreground(pr.Ctx.Theme.SecondaryText).
@@ -194,8 +194,14 @@ func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
 
 	author := baseStyle.Bold(true).Render(fmt.Sprintf("@%s",
 		pr.Data.Primary.GetAuthor(pr.Ctx.Theme, pr.ShowAuthorIcon)))
+	// Only the "#1234" is marked, not the whole line: clicking the number opens
+	// the PR, clicking anywhere else in the row merely selects it.
+	number := common.MarkZone(
+		common.RowTargetZoneID(rowIdx, common.ZoneNumber),
+		fmt.Sprintf("#%d", pr.Data.Primary.Number),
+	)
 	top := lipgloss.JoinHorizontal(lipgloss.Top, pr.Data.Primary.Repository.NameWithOwner,
-		fmt.Sprintf(" #%d by %s", pr.Data.Primary.Number, author))
+		" ", number, fmt.Sprintf(" by %s", author))
 	branchHidden := pr.Ctx.Config.Defaults.Layout.Prs.Base.Hidden
 	if branchHidden == nil || !*branchHidden {
 		branch := baseStyle.Render(pr.Data.Primary.HeadRefName)
@@ -384,23 +390,30 @@ func (pr *PullRequest) RenderMergeStateStatus() string {
 	}
 }
 
-func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
+// markCell makes one of the row's icon cells individually clickable.
+func (pr *PullRequest) markCell(rowIdx int, target, cell string) string {
+	return common.MarkZone(common.RowTargetZoneID(rowIdx, target), cell)
+}
+
+func (pr *PullRequest) ToTableRow(rowIdx int, isSelected bool) table.Row {
 	if !pr.Ctx.Config.Theme.Ui.Table.Compact {
 		return table.Row{
 			pr.renderState(),
-			pr.renderExtendedTitle(isSelected),
+			pr.renderExtendedTitle(rowIdx, isSelected),
 			pr.renderLabels(isSelected),
 			pr.renderAssignees(),
 			pr.renderBaseName(),
-			pr.renderNumComments(),
-			pr.renderReviewStatus(),
-			pr.renderCiStatus(),
+			pr.markCell(rowIdx, common.ZoneComments, pr.renderNumComments()),
+			pr.markCell(rowIdx, common.ZoneReview, pr.renderReviewStatus()),
+			pr.markCell(rowIdx, common.ZoneCi, pr.renderCiStatus()),
 			pr.RenderLines(isSelected),
 			pr.renderUpdateAt(),
 			pr.renderCreatedAt(),
 		}
 	}
 
+	// Compact rows have no extended title, so there is no "#1234" to mark; the
+	// row still opens on double-click. The icons stay individually clickable.
 	return table.Row{
 		pr.renderState(),
 		pr.renderRepoName(),
@@ -409,9 +422,9 @@ func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
 		pr.renderLabels(isSelected),
 		pr.renderAssignees(),
 		pr.renderBaseName(),
-		pr.renderNumComments(),
-		pr.renderReviewStatus(),
-		pr.renderCiStatus(),
+		pr.markCell(rowIdx, common.ZoneComments, pr.renderNumComments()),
+		pr.markCell(rowIdx, common.ZoneReview, pr.renderReviewStatus()),
+		pr.markCell(rowIdx, common.ZoneCi, pr.renderCiStatus()),
 		pr.RenderLines(isSelected),
 		pr.renderUpdateAt(),
 		pr.renderCreatedAt(),

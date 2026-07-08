@@ -73,6 +73,9 @@ type Model struct {
 	mouseDown bool
 	dragged   bool
 	sel       textSelection
+	// Double-click bookkeeping (see mouseclick.go).
+	lastClickRow int
+	lastClickAt  time.Time
 	// frameBuf holds the last frame View rendered, so a drag-release can read
 	// the text under the selection. View has a value receiver and cannot write
 	// to the model, hence the pointer.
@@ -92,6 +95,8 @@ func NewModel(location config.Location, repos Repositories) Model {
 		taskSpinner: taskSpinner,
 		tasks:       map[string]context.Task{},
 		frameBuf:    new(string),
+		// -1, not 0: a zero value would look like "row 0 was just clicked".
+		lastClickRow: -1,
 	}
 
 	version := "dev"
@@ -928,14 +933,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// Clicking a row selects it and opens it on GitHub.
+		// Row clicks. The sub-regions of a row (its number, its icons) mean
+		// something more specific than "this row", so they are tested first.
+		// A bare click anywhere else only selects; opening needs a double-click.
 		if currSection != nil {
 			for i := range currSection.NumRows() {
-				if !zone.Get(table.RowZoneID(i)).InBounds(msg) {
+				hit := rowHit{
+					number:   zone.Get(common.RowTargetZoneID(i, common.ZoneNumber)).InBounds(msg),
+					ci:       zone.Get(common.RowTargetZoneID(i, common.ZoneCi)).InBounds(msg),
+					review:   zone.Get(common.RowTargetZoneID(i, common.ZoneReview)).InBounds(msg),
+					comments: zone.Get(common.RowTargetZoneID(i, common.ZoneComments)).InBounds(msg),
+				}
+				if !hit.targeted() && !zone.Get(table.RowZoneID(i)).InBounds(msg) {
 					continue
 				}
+
 				currSection.SetCurrRow(i)
-				cmds = append(cmds, m.onViewedRowChanged(), m.openBrowser())
+				cmds = append(cmds, m.onViewedRowChanged())
+
+				// Only a bare click can pair into a double-click; clicking an
+				// icon must not arm one.
+				isDouble := false
+				if !hit.targeted() {
+					isDouble = m.registerRowClick(i)
+				}
+				if url := rowClickAction(m.currRowURL(), hit, isDouble); url != "" {
+					cmds = append(cmds, m.openURL(url))
+				}
+
 				return m, tea.Batch(cmds...)
 			}
 		}
