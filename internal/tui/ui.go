@@ -918,6 +918,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// teaMouseMode maps the configured mouse mode onto bubbletea's. Mouse capture
+// powers clickable UI, but it intercepts click-drag, so `none` is what you set
+// when you want your terminal's native text selection back.
+func teaMouseMode(mm config.MouseMode) tea.MouseMode {
+	switch mm {
+	case config.MouseModeNone:
+		return tea.MouseModeNone
+	case config.MouseModeAllMotion:
+		return tea.MouseModeAllMotion
+	default:
+		return tea.MouseModeCellMotion
+	}
+}
+
 func (m Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
@@ -934,6 +948,8 @@ func (m Model) View() tea.View {
 		)
 		return v
 	}
+
+	v.MouseMode = teaMouseMode(m.ctx.Config.Defaults.MouseMode)
 
 	s := strings.Builder{}
 	if m.ctx.View != config.RepoView {

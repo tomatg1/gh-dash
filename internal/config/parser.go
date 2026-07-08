@@ -183,6 +183,18 @@ type LayoutConfig struct {
 	Issues IssuesLayoutConfig `yaml:"issues,omitempty"`
 }
 
+// MouseMode controls whether the dashboard captures the terminal's mouse
+// events. Capture is what makes UI elements clickable, but it also intercepts
+// click-drag — which is what terminals use for native text selection. Set
+// `none` to release the mouse and select/copy text normally.
+type MouseMode string
+
+const (
+	MouseModeCellMotion MouseMode = "cellMotion" // clicks, release, wheel, drag (default)
+	MouseModeAllMotion  MouseMode = "allMotion"  // also motion with no button held
+	MouseModeNone       MouseMode = "none"       // no capture; native text selection
+)
+
 type Defaults struct {
 	Preview                PreviewConfig `yaml:"preview"`
 	PrsLimit               int           `yaml:"prsLimit"`
@@ -193,6 +205,7 @@ type Defaults struct {
 	Layout                 LayoutConfig  `yaml:"layout,omitempty"`
 	RefetchIntervalMinutes int           `yaml:"refetchIntervalMinutes,omitempty"`
 	DateFormat             string        `yaml:"dateFormat,omitempty"`
+	MouseMode              MouseMode     `yaml:"mouseMode,omitempty"`
 }
 
 type RepoConfig struct {
@@ -358,6 +371,7 @@ func (parser ConfigParser) getDefaultConfig() Config {
 			NotificationsLimit:     20,
 			View:                   PRsView,
 			RefetchIntervalMinutes: 30,
+			MouseMode:              MouseModeCellMotion,
 			Layout: LayoutConfig{
 				Prs: PrsLayoutConfig{
 					UpdatedAt: ColumnConfig{
