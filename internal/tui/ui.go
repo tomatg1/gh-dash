@@ -108,9 +108,14 @@ func NewModel(location config.Location, repos Repositories) Model {
 	m.layoutStateKey = layoutKey(location.ConfigFlag, location.RepoPath)
 	m.previewHeightOverride = loadPreviewHeight(m.layoutStateKey)
 
-	version := "dev"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Sum != "" {
-		version = info.Main.Version
+	// Prefer the ldflags-injected Version; fall back to module build info, then
+	// to "dev". A local `go build` has no module version, so the fork's build
+	// recipe sets Version via -ldflags (see version.go).
+	version := Version
+	if version == "" || version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Sum != "" {
+			version = info.Main.Version
+		}
 	}
 
 	m.ctx = &context.ProgramContext{
@@ -1019,6 +1024,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				currSection.SetCurrRow(i)
 				cmds = append(cmds, m.onViewedRowChanged())
+
+				// Rebuild the section's rows so the PREVIOUSLY selected row loses
+				// its highlight. BuildRows() bakes the selected styling into each
+				// cell, so SetCurrRow's SyncViewPortContent alone re-renders with
+				// stale selection. The section rebuilds at the tail of its Update
+				// on any message; the keyboard path reaches that via
+				// updateCurrentSection, but this early-returning click path skips
+				// it -- so trigger the same rebuild here. table.Update ignores
+				// mouse events, so forwarding the release msg only rebuilds.
+				cmds = append(cmds, m.updateCurrentSection(msg))
 
 				// Only a bare click can pair into a double-click; clicking an
 				// icon must not arm one.
