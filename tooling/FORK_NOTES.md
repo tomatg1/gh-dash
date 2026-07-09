@@ -197,9 +197,22 @@ defaults:
 
 Empty (the default) = unchanged OS-default-browser behavior. All PR-open paths
 (`o`, click, double-click, the `#number`, the CI/review/comments icons) route
-through it via `internal/urlopen`. The command opens the URL in that profile's
-window (a new tab); it doesn't force the window to the foreground — append your
-own `&& open -a "Google Chrome"` if you want it to jump forward.
+through it via `internal/urlopen`.
+
+**Speed matters here.** Launching the Chrome *binary* with `--profile-directory`
+to hand off a URL takes **~4s**; `open`/AppleScript talk to the running Chrome in
+**~0.2s** but can't target a *profile*. So `tooling/open-url.sh` caches the target
+profile's **window id** and adds a tab to it via AppleScript (fast), using the
+slow binary launch only to bootstrap/repair the cache. Point `urlOpenCommand` at
+it:
+
+```yaml
+urlOpenCommand: '~/code/gh-dash/tooling/open-url.sh "Profile 3" "{{.URL}}"'
+```
+
+The window-id cache lives in `$XDG_STATE_HOME/gh-dash/chrome-window-<profile>`.
+First open after a Chrome-window closes is slow (re-bootstrap); the rest are
+instant. It brings the window to the front (`activate`).
 
 > Chrome maps a display name (e.g. "Work") to a directory (`Profile N`) in
 > `Local State` / each profile's `Preferences`. gh-dash needs the **directory**.
@@ -351,6 +364,7 @@ All the reproducible setup for this fork lives in `tooling/` (next to this file)
 | `setup-terminal.sh` | macOS: Nerd Font + `gh-dash` Terminal profile + `ghd` launcher |
 | `ghd.zsh` | the `ghd` launcher function (sourced from `~/.zshrc`) |
 | `ghd-repo.py` | manage the per-repo tabs in `config.yml` (symlinked to `~/.bin/ghd-repo`) |
+| `open-url.sh` | fast-open a URL in a specific Chrome profile (window-id cache); used by `urlOpenCommand` |
 | `FORK_NOTES.md` | this file |
 
 > Why `tooling/` and not `docs/`? Upstream's `docs/` is the Starlight source for
