@@ -256,7 +256,7 @@ Local annotated tags, never pushed. The logo shows the current one (via
 
 ```bash
 git -C ~/code/gh-dash checkout v4.25.0-local.1
-~/code/gh-dash-build.sh
+~/code/gh-dash/tooling/build.sh
 ```
 
 | tag | contents |
@@ -271,10 +271,36 @@ Remember: the checkout **is** the installed extension, so rebuild after any
 
 The logo shows `git describe --tags` (e.g. `v4.25.0-local.2`), injected at build
 time via `-ldflags -X …/internal/tui.Version=…`. **This is why you build through
-`gh-dash-build.sh`** — a bare `go build` has no version to inject and the logo
+`tooling/build.sh`** — a bare `go build` has no version to inject and the logo
 falls back to "dev". The "Update available!" nag is suppressed for local builds
 (a fork is always ahead of the upstream tag, so the nag would be permanent and
 misleading).
+
+## `tooling/` — where the setup lives
+
+All the reproducible setup for this fork lives in `tooling/` (next to this file):
+
+| file | what it does |
+| --- | --- |
+| `setup.sh` | run everything, idempotent: build → install extension → font/profile/launcher → link `ghd-repo` |
+| `build.sh` | build the binary with the git-describe version baked into the logo |
+| `setup-terminal.sh` | macOS: Nerd Font + `gh-dash` Terminal profile + `ghd` launcher |
+| `ghd.zsh` | the `ghd` launcher function (sourced from `~/.zshrc`) |
+| `ghd-repo.py` | manage the per-repo tabs in `config.yml` (symlinked to `~/.bin/ghd-repo`) |
+| `FORK_NOTES.md` | this file |
+
+> Why `tooling/` and not `docs/`? Upstream's `docs/` is the Starlight source for
+> the gh-dash.dev **website** (astro, pnpm, its own Dockerfile) — not a general
+> docs folder. Dropping fork notes there would pollute a directory the maintainer
+> ships from, so everything custom is namespaced under `tooling/` instead.
+
+### Reproduce from scratch
+
+```bash
+git clone <your-fork> ~/code/gh-dash && cd ~/code/gh-dash
+git remote add upstream https://github.com/dlvhdr/gh-dash.git
+./tooling/setup.sh          # build, install, font/profile/launcher, ghd-repo
+```
 
 ## Build / install
 
@@ -285,8 +311,8 @@ The fork directory **is** the installed extension (gh symlinks to it):
 ```
 
 ```bash
-# build (bakes the git-describe version into the logo; fully pathed, no cd)
-~/code/gh-dash-build.sh
+# build (bakes the git-describe version into the logo; derives repo from its path)
+~/code/gh-dash/tooling/build.sh
 
 # install — `.` is MANDATORY; gh rejects absolute paths for local extensions,
 # and the binary must already exist and be named after the repo.
@@ -302,7 +328,7 @@ Rebuild after every branch switch or upstream pull.
 ```bash
 git -C ~/code/gh-dash fetch upstream
 git -C ~/code/gh-dash rebase upstream/main
-~/code/gh-dash-build.sh
+~/code/gh-dash/tooling/build.sh
 ```
 
 No reinstall needed — it's a symlink.
@@ -326,18 +352,20 @@ gh extension remove dash && gh extension install dlvhdr/gh-dash
 
 ---
 
-## Surrounding setup (not part of the fork)
+## Surrounding setup (macOS / Terminal.app)
 
-### Fonts
+### Fonts + profile + launcher — `tooling/setup-terminal.sh`
 
 gh-dash draws its state icons with **Nerd Font** glyphs. Terminal.app has no
 glyph fallback — it can only draw glyphs present in the one selected font — so
 the `?` tofu boxes mean "wrong font", never "broken config".
 
-```bash
-brew install --cask font-meslo-lg-nerd-font
-osascript -e 'tell application "Terminal" to set font name of settings set "gh-dash" to "MesloLGSDZNFM-Regular"'
-```
+`tooling/setup-terminal.sh` does all three, idempotently:
+
+1. `brew install --cask font-meslo-lg-nerd-font`
+2. creates a `gh-dash` Terminal profile (via AppleScript — `make new settings
+   set` + set font) using **`MesloLGSDZNFM-Regular`**
+3. wires the `ghd` launcher into `~/.zshrc`
 
 Terminal stores fonts by **PostScript** name, not the family name in the font
 panel. `MesloLGSDZNFM-Regular` = *MesloLGSDZ Nerd Font **Mono***. The `Mono` face
@@ -346,16 +374,16 @@ misaligns the columns.
 
 ### `ghd` — launch into the Nerd Font profile
 
-Shell function in `~/.zshrc`. Focuses an open gh-dash window if there is one,
-else opens a new one, always pinned to the `gh-dash` Terminal profile. Fails
-loudly if that profile is missing.
+`tooling/ghd.zsh`, sourced from `~/.zshrc`. Focuses an open gh-dash window if
+there is one, else opens a new one, always pinned to the `gh-dash` Terminal
+profile. Fails loudly if that profile is missing.
 
 Terminal binds fonts to **profiles**, not windows — a per-window font means a
 one-off profile applied to just that window.
 
 ### `ghd-repo` — manage per-repo tabs
 
-`~/.bin/ghd-repo` → `~/.local/lib/gh-dash/ghd-repo.py`
+`~/.bin/ghd-repo` → `tooling/ghd-repo.py`
 
 ```bash
 ghd-repo ls
