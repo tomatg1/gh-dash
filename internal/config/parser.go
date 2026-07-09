@@ -211,6 +211,10 @@ type Defaults struct {
 	// default browser. Rendered as a text/template with {{.URL}} and run via
 	// `sh -c`, so links can be routed to a specific browser or profile.
 	URLOpenCommand string `yaml:"urlOpenCommand,omitempty"`
+	// MouseWheelReverse flips the wheel-to-selection direction. The default is
+	// tuned for macOS natural scrolling (a two-finger-down gesture moves the
+	// selection DOWN the list); set true for a classic mouse / non-natural setup.
+	MouseWheelReverse bool `yaml:"mouseWheelReverse,omitempty"`
 }
 
 // EffectiveRefetchSeconds is the auto-refresh cadence in seconds.
