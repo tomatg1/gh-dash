@@ -214,6 +214,13 @@ The window-id cache lives in `$XDG_STATE_HOME/gh-dash/chrome-window-<profile>`.
 First open after a Chrome-window closes is slow (re-bootstrap); the rest are
 instant. It brings the window to the front (`activate`).
 
+**Startup pre-warm.** When `urlOpenCommand` is set, gh-dash opens the first
+configured repo's PR list on launch — in a background goroutine, so it never
+blocks startup — which warms the window-id cache and leaves a useful tab open, so
+the first real open is already instant. The URL is derived from the PR sections
+(first `repo:`, else first `org:`, else your PR inbox). Disable with
+`defaults.disableBrowserPrewarm: true`.
+
 > Chrome maps a display name (e.g. "Work") to a directory (`Profile N`) in
 > `Local State` / each profile's `Preferences`. gh-dash needs the **directory**.
 
