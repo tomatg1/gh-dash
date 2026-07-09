@@ -175,13 +175,23 @@ func TestSeparator_ReleasePersistsTheHeight(t *testing.T) {
 }
 
 func TestLayoutKey_IdentifiesTheDashboard(t *testing.T) {
-	t.Setenv("GH_DASH_INSTANCE", "")
-	require.Equal(t, "global|", layoutKey("", ""))
-	require.Equal(t, "/tmp/c.yml|/repo", layoutKey("/tmp/c.yml", "/repo"))
-
+	// Explicit name always wins.
 	t.Setenv("GH_DASH_INSTANCE", "left-window")
 	require.Equal(t, "instance:left-window", layoutKey("/tmp/c.yml", "/repo"),
-		"GH_DASH_INSTANCE gives a window its own remembered layout")
+		"an explicit instance name gives a window its own remembered layout")
+
+	// Implicit: two dashboards launched from different directories get different
+	// keys automatically, without naming them.
+	t.Setenv("GH_DASH_INSTANCE", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.Equal(t, "dir:"+dir, layoutKey("", ""),
+		"with no name, the launch directory is the instance")
+
+	other := t.TempDir()
+	t.Chdir(other)
+	require.NotEqual(t, "dir:"+dir, layoutKey("", ""),
+		"a different launch directory is a different instance")
 }
 
 func TestLayoutState_RoundTripsAndMergesKeys(t *testing.T) {

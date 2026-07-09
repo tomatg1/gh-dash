@@ -10,7 +10,8 @@ import (
 // here is best-effort: any failure degrades to "use the configured default",
 // never to an error the user has to care about.
 type layoutState struct {
-	PreviewHeight map[string]int `json:"previewHeight"`
+	PreviewHeight map[string]int    `json:"previewHeight"`
+	Selection     map[string]string `json:"selection,omitempty"`
 }
 
 // layoutStateDir follows the XDG state spec -- state that should persist but
@@ -44,10 +45,20 @@ func layoutStatePath() string {
 // -- the config it loaded and the repo it was launched in. Export
 // GH_DASH_INSTANCE to give a particular window its own remembered layout.
 func layoutKey(configFlag, repoPath string) string {
+	// Explicit name wins: --instance flag (which sets GH_DASH_INSTANCE) or the
+	// env var directly.
 	if inst := os.Getenv("GH_DASH_INSTANCE"); inst != "" {
 		return "instance:" + inst
 	}
 
+	// Implicit: the directory gh-dash was launched from, so two dashboards run
+	// from different directories are automatically distinct instances without
+	// naming them.
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+		return "dir:" + cwd
+	}
+
+	// Last resort if the cwd can't be read.
 	cfg := configFlag
 	if cfg == "" {
 		cfg = "global"
@@ -56,8 +67,15 @@ func layoutKey(configFlag, repoPath string) string {
 	return cfg + "|" + repoPath
 }
 
+func emptyLayoutState() layoutState {
+	return layoutState{
+		PreviewHeight: map[string]int{},
+		Selection:     map[string]string{},
+	}
+}
+
 func readLayoutState() layoutState {
-	st := layoutState{PreviewHeight: map[string]int{}}
+	st := emptyLayoutState()
 
 	path := layoutStatePath()
 	if path == "" {
@@ -69,35 +87,27 @@ func readLayoutState() layoutState {
 		return st // no state yet, or unreadable: fall back to defaults
 	}
 	if err := json.Unmarshal(b, &st); err != nil {
-		return layoutState{PreviewHeight: map[string]int{}} // corrupt: start over
+		return emptyLayoutState() // corrupt: start over
 	}
 	if st.PreviewHeight == nil {
 		st.PreviewHeight = map[string]int{}
+	}
+	if st.Selection == nil {
+		st.Selection = map[string]string{}
 	}
 
 	return st
 }
 
-// loadPreviewHeight returns the remembered preview height for key, or 0 for
-// "nothing remembered, use the config".
-func loadPreviewHeight(key string) int {
-	return readLayoutState().PreviewHeight[key]
-}
-
-// savePreviewHeight persists h under key, merging into whatever other instances
-// have stored. Written to a temp file and renamed, so a crash mid-write can
-// never leave a half-parsed layout behind.
-func savePreviewHeight(key string, h int) error {
+// writeLayoutState atomically persists st (temp file + rename).
+func writeLayoutState(st layoutState) error {
 	dir := layoutStateDir()
-	if dir == "" || h <= 0 {
+	if dir == "" {
 		return nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-
-	st := readLayoutState()
-	st.PreviewHeight[key] = h
 
 	b, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
@@ -110,4 +120,51 @@ func savePreviewHeight(key string, h int) error {
 	}
 
 	return os.Rename(tmp, layoutStatePath())
+}
+
+// selectionKey scopes a remembered selection to an instance + section.
+func selectionKey(instanceKey, section string) string {
+	return instanceKey + "\x00" + section
+}
+
+// loadSelection returns the remembered selected-item URL for a section, or "".
+func loadSelection(instanceKey, section string) string {
+	return readLayoutState().Selection[selectionKey(instanceKey, section)]
+}
+
+// saveSelection persists the selected-item URL for a section, merging into the
+// existing state. An empty url clears it.
+func saveSelection(instanceKey, section, url string) error {
+	if layoutStateDir() == "" {
+		return nil
+	}
+	st := readLayoutState()
+	k := selectionKey(instanceKey, section)
+	if url == "" {
+		delete(st.Selection, k)
+	} else {
+		st.Selection[k] = url
+	}
+
+	return writeLayoutState(st)
+}
+
+// loadPreviewHeight returns the remembered preview height for key, or 0 for
+// "nothing remembered, use the config".
+func loadPreviewHeight(key string) int {
+	return readLayoutState().PreviewHeight[key]
+}
+
+// savePreviewHeight persists h under key, merging into whatever other instances
+// have stored. Written to a temp file and renamed, so a crash mid-write can
+// never leave a half-parsed layout behind.
+func savePreviewHeight(key string, h int) error {
+	if layoutStateDir() == "" || h <= 0 {
+		return nil
+	}
+
+	st := readLayoutState()
+	st.PreviewHeight[key] = h
+
+	return writeLayoutState(st)
 }
