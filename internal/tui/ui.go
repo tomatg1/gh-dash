@@ -1760,7 +1760,7 @@ func (m *Model) fetchAllViewSections() ([]section.Section, tea.Cmd) {
 		cmds = append(cmds, prcmds)
 		return s, tea.Batch(cmds...)
 	default:
-		s, issuecmds := issuessection.FetchAllSections(m.ctx)
+		s, issuecmds := issuessection.FetchAllSections(m.ctx, m.issues)
 		cmds = append(cmds, issuecmds)
 		return s, tea.Batch(cmds...)
 	}

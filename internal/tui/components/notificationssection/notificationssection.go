@@ -397,6 +397,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)
 			m.Table.SetRows(m.BuildRows())
+			m.restoreSelection()
 			m.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 
@@ -530,6 +531,16 @@ func (m *Model) GetCurrRow() data.RowData {
 		return nil
 	}
 	return &m.Notifications[idx]
+}
+
+// restoreSelection re-selects, by URL, whatever was selected before a refresh
+// rebuilt this section.
+func (m *Model) restoreSelection() {
+	urls := make([]string, len(m.Notifications))
+	for i := range m.Notifications {
+		urls[i] = m.Notifications[i].GetUrl()
+	}
+	m.RestoreSelection(urls)
 }
 
 func (m *Model) GetCurrNotification() *notificationrow.Data {
@@ -841,6 +852,10 @@ func FetchAllSections(
 				sectionModel.IsFilteredByCurrentRemote = oldSection.IsFilteredByCurrentRemote
 				sectionModel.SearchValue = oldSection.SearchValue
 				sectionModel.SearchBar.SetValue(oldSection.SearchValue)
+				// Keep the cursor on the same notification across the refresh.
+				if r := oldSection.GetCurrRow(); r != nil {
+					sectionModel.SetPendingSelection(r.GetUrl())
+				}
 			}
 		}
 
