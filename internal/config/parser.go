@@ -207,6 +207,10 @@ type Defaults struct {
 	RefetchIntervalSeconds int           `yaml:"refetchIntervalSeconds,omitempty"`
 	DateFormat             string        `yaml:"dateFormat,omitempty"`
 	MouseMode              MouseMode     `yaml:"mouseMode,omitempty"`
+	// URLOpenCommand, when set, is used to open PR/issue URLs instead of the OS
+	// default browser. Rendered as a text/template with {{.URL}} and run via
+	// `sh -c`, so links can be routed to a specific browser or profile.
+	URLOpenCommand string `yaml:"urlOpenCommand,omitempty"`
 }
 
 // EffectiveRefetchSeconds is the auto-refresh cadence in seconds.
