@@ -50,7 +50,8 @@ func (m *Model) prewarmBrowserCmd() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		_ = urlopen.Open(cmdTemplate, url)
+		// Prewarm mode: the helper skips (no new tab) when its cache is warm.
+		_ = urlopen.Prewarm(cmdTemplate, url)
 		return nil
 	}
 }
