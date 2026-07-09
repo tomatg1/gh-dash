@@ -2089,12 +2089,13 @@ func fetchUser() tea.Msg {
 type intervalRefresh time.Time
 
 func (m *Model) doRefreshAtInterval() tea.Cmd {
-	if m.ctx.Config.Defaults.RefetchIntervalMinutes == 0 {
+	secs := m.ctx.Config.Defaults.EffectiveRefetchSeconds()
+	if secs <= 0 {
 		return nil
 	}
 
 	return tea.Tick(
-		time.Minute*time.Duration(m.ctx.Config.Defaults.RefetchIntervalMinutes),
+		time.Duration(secs)*time.Second,
 		func(t time.Time) tea.Msg {
 			return intervalRefresh(t)
 		},

@@ -204,8 +204,21 @@ type Defaults struct {
 	View                   ViewType      `yaml:"view"`
 	Layout                 LayoutConfig  `yaml:"layout,omitempty"`
 	RefetchIntervalMinutes int           `yaml:"refetchIntervalMinutes,omitempty"`
+	RefetchIntervalSeconds int           `yaml:"refetchIntervalSeconds,omitempty"`
 	DateFormat             string        `yaml:"dateFormat,omitempty"`
 	MouseMode              MouseMode     `yaml:"mouseMode,omitempty"`
+}
+
+// EffectiveRefetchSeconds is the auto-refresh cadence in seconds.
+// refetchIntervalSeconds takes precedence over refetchIntervalMinutes when set
+// (>0), so sub-minute intervals are possible; otherwise the minute value is
+// used. A result of 0 means auto-refresh is disabled.
+func (d Defaults) EffectiveRefetchSeconds() int {
+	if d.RefetchIntervalSeconds > 0 {
+		return d.RefetchIntervalSeconds
+	}
+
+	return d.RefetchIntervalMinutes * 60
 }
 
 type RepoConfig struct {
