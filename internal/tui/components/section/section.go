@@ -183,6 +183,7 @@ type Section interface {
 	GetItemSingularForm() string
 	GetItemPluralForm() string
 	GetTotalCount() int
+	SetPendingSelection(url string)
 }
 
 type Identifier interface {
