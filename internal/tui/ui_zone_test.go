@@ -429,20 +429,33 @@ func TestMouseClick_NonLeftButtonIgnored(t *testing.T) {
 	require.False(t, openedBrowser(started), "right-click should not open")
 }
 
-func TestMouseWheel_ScrollsRowSelectionAndClearsHighlight(t *testing.T) {
+// Default (macOS natural scrolling): a two-finger-down gesture — reported as a
+// wheel-UP event — moves the selection DOWN the list.
+func TestMouseWheel_NaturalDefaultAndClearsHighlight(t *testing.T) {
 	m, _ := zoneTestModel(t)
 	_ = m.View()
 
 	m.sel = textSelection{active: true, anchorX: 0, anchorY: 5, cursorX: 9, cursorY: 5}
 
-	updated, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	updated, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	m = updated.(Model)
-	require.Equal(t, 1, m.prs[0].CurrRow(), "wheel down should advance the selection")
+	require.Equal(t, 1, m.prs[0].CurrRow(), "two-finger-down (wheel-up event) advances the selection")
 	require.False(t, m.sel.active, "scrolling moves rows, so the highlight must drop")
 
-	updated, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	updated, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	m = updated.(Model)
-	require.Equal(t, 0, m.prs[0].CurrRow(), "wheel up should move it back")
+	require.Equal(t, 0, m.prs[0].CurrRow(), "two-finger-up (wheel-down event) moves it back")
+}
+
+// mouseWheelReverse restores the classic mouse mapping (wheel-down = down list).
+func TestMouseWheel_ReverseOption(t *testing.T) {
+	m, _ := zoneTestModel(t)
+	m.ctx.Config.Defaults.MouseWheelReverse = true
+	_ = m.View()
+
+	updated, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	m = updated.(Model)
+	require.Equal(t, 1, m.prs[0].CurrRow(), "reversed: wheel-down advances the selection")
 }
 
 func TestKeyPress_ClearsHighlight(t *testing.T) {
