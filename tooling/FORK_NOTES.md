@@ -130,11 +130,9 @@ Persisted to `$XDG_STATE_HOME/gh-dash/layout.json` (else `~/.local/state/…`),
 written temp-file-then-rename so a crash mid-write can't leave a half-parsed
 layout. A corrupt file reads as "nothing remembered".
 
-**On "each instance":** no per-window identity survives a restart — a tty is
-recycled, a terminal session id is minted fresh. So the key is what actually
-defines the dashboard: its config path and the repo it was launched in
-(`global|` for you). Export **`GH_DASH_INSTANCE=left-window`** to give one
-particular window its own remembered layout.
+**On "each instance":** see the [Instances](#instances) section — persisted
+state (layout + selection) is scoped per instance, defaulting implicitly to the
+launch directory's config.
 
 A height saved on a taller terminal is clamped on load, so a big preview can
 never swallow the list. Only a **bottom-docked** preview has an up/down divider;
@@ -205,6 +203,48 @@ own `&& open -a "Google Chrome"` if you want it to jump forward.
 
 > Chrome maps a display name (e.g. "Work") to a directory (`Profile N`) in
 > `Local State` / each profile's `Preferences`. gh-dash needs the **directory**.
+
+### Mouse wheel direction (commit `5af211b`)
+
+The wheel-to-selection mapping felt reversed under macOS **natural scrolling**.
+Default is now tuned for it: a two-finger-**down** gesture moves the selection
+**down** the list. Set `defaults.mouseWheelReverse: true` for a classic mouse.
+
+> macOS *natural scrolling* (System Settings → Trackpad → "Natural scrolling",
+> on by default) makes content follow your fingers, like a touchscreen — which
+> flips what direction the terminal reports for a wheel event. What you want for
+> a list (push down → go down) is the mouse-wheel feel; the default now delivers
+> that, and the toggle covers the other setup.
+
+### Persisted selection (commit `825d501`)
+
+The selected item's URL is remembered per section per instance in the state
+file, and restored on the next launch (the section re-selects that URL once its
+first fetch lands). Saved on every selection change.
+
+## Instances
+
+An **instance** scopes persisted state (layout height + selection). Identity:
+
+```
+--instance <file>   use that config file
+--instance <dir>    use <dir>/.gh-dash/config.yml (created if missing)
+--instance .        use $PWD/.gh-dash/config.yml (created if missing)
+(none) + local      use $PWD/.gh-dash/config.yml if it already exists
+(none)              global config; state keyed implicitly by the launch directory
+```
+
+So **two dashboards launched from different directories are automatically
+distinct instances** — different layouts, different remembered selections —
+without naming them. `--instance .` bootstraps a hidden `./.gh-dash/config.yml`
+(seeded template) so a directory can have its own filters/tabs too. The instance
+name is synthetic: the project directory name plus a hash of the config path
+(e.g. `work-592fa798`). `GH_DASH_INSTANCE=<name>` still works as an explicit
+override.
+
+State lives in `$XDG_STATE_HOME/gh-dash/layout.json` (else `~/.local/state/…`),
+keyed by instance; `ghd` launches from `~`, so all ghd windows share the `~`
+instance unless launched elsewhere or given `--instance`.
 
 ## How selection and clicking coexist
 
