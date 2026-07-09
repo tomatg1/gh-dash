@@ -182,6 +182,30 @@ defaults:
 `0` on both disables auto-refresh. The refresh tick is driven off the effective
 seconds value. **This config's current setting is `refetchIntervalSeconds: 30`.**
 
+### Open links in a chosen browser profile (commit `9adb343`)
+
+By default gh-dash opens PR/issue URLs in the OS default browser — which may be
+the wrong browser profile, signed in to the wrong GitHub account.
+`defaults.urlOpenCommand` overrides that: it's rendered as a text/template with
+`{{.URL}}` and run via `sh -c`, so links go to a specific browser/profile.
+
+```yaml
+defaults:
+  # macOS: open in the Chrome profile already signed in to the right account.
+  # Find the profile directory in ~/Library/Application Support/Google/Chrome
+  # (Default, Profile 1, Profile 3, …) — NOT the display name.
+  urlOpenCommand: '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --profile-directory="Profile 3" "{{.URL}}"'
+```
+
+Empty (the default) = unchanged OS-default-browser behavior. All PR-open paths
+(`o`, click, double-click, the `#number`, the CI/review/comments icons) route
+through it via `internal/urlopen`. The command opens the URL in that profile's
+window (a new tab); it doesn't force the window to the foreground — append your
+own `&& open -a "Google Chrome"` if you want it to jump forward.
+
+> Chrome maps a display name (e.g. "Work") to a directory (`Profile N`) in
+> `Local State` / each profile's `Preferences`. gh-dash needs the **directory**.
+
 ## How selection and clicking coexist
 
 The moment a program enables mouse reporting, the terminal hands drag events to
