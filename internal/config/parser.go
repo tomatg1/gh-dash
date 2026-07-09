@@ -215,6 +215,11 @@ type Defaults struct {
 	// tuned for macOS natural scrolling (a two-finger-down gesture moves the
 	// selection DOWN the list); set true for a classic mouse / non-natural setup.
 	MouseWheelReverse bool `yaml:"mouseWheelReverse,omitempty"`
+	// DisableBrowserPrewarm turns off the startup pre-warm. When urlOpenCommand
+	// is set, gh-dash opens the first configured repo's PR list on launch (in the
+	// background) so the browser/profile window is ready and later opens are
+	// instant. Set true to skip it.
+	DisableBrowserPrewarm bool `yaml:"disableBrowserPrewarm,omitempty"`
 }
 
 // EffectiveRefetchSeconds is the auto-refresh cadence in seconds.

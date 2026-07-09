@@ -743,7 +743,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		cmds = append(cmds, fetchSectionsCmds, m.tabs.Init(), fetchUser,
-			m.doRefreshAtInterval(), m.doUpdateFooterAtInterval())
+			m.doRefreshAtInterval(), m.doUpdateFooterAtInterval(),
+			m.prewarmBrowserCmd())
 
 	case intervalRefresh:
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
