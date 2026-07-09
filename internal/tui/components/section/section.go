@@ -49,6 +49,39 @@ type BaseModel struct {
 	ShowAuthorIcon            bool
 	IsFilteredByCurrentRemote bool
 	IsLoading                 bool
+	// pendingSelection is the URL of the item to reselect after the next row
+	// rebuild. A refresh recreates the section from scratch (cursor 0); stashing
+	// the selected item's URL here and restoring it once the fresh data lands
+	// keeps the cursor on the same item instead of snapping to the top. URL is
+	// used because it's on every RowData (notifications have no number).
+	pendingSelection string
+}
+
+// SetPendingSelection records the URL of the item to reselect after the next
+// rebuild. Empty clears it.
+func (m *BaseModel) SetPendingSelection(url string) {
+	m.pendingSelection = url
+}
+
+// RestoreSelection moves the cursor to the row whose URL matches the pending
+// selection, then clears the pending state. urls[i] is the URL of row i (same
+// order as the table rows). No-op when nothing is pending or the item is gone
+// (e.g. merged/closed since the last refresh) — the cursor is left where it is.
+func (m *BaseModel) RestoreSelection(urls []string) {
+	if m.pendingSelection == "" {
+		return
+	}
+	want := m.pendingSelection
+	m.pendingSelection = ""
+	for i, u := range urls {
+		if u == want {
+			m.Table.SetCurrItem(i)
+			return
+		}
+	}
+	// The item is gone (merged/closed since last refresh). Re-clamp the cursor
+	// to a valid row so a shrunk list can't leave it pointing past the end.
+	m.Table.SetCurrItem(m.Table.GetCurrItem())
 }
 
 type NewSectionOptions struct {

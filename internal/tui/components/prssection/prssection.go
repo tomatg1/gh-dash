@@ -207,6 +207,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)
 			m.Table.SetRows(m.BuildRows())
+			m.restoreSelection()
 			m.Table.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 		}
@@ -445,6 +446,18 @@ func (m *Model) GetCurrRow() data.RowData {
 	return &pr
 }
 
+// restoreSelection re-selects, by URL, whatever was selected before a refresh
+// rebuilt this section.
+func (m *Model) restoreSelection() {
+	urls := make([]string, len(m.Prs))
+	for i := range m.Prs {
+		if m.Prs[i].Primary != nil {
+			urls[i] = m.Prs[i].Primary.GetUrl()
+		}
+	}
+	m.RestoreSelection(urls)
+}
+
 func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 	if m == nil {
 		return nil
@@ -542,6 +555,10 @@ func FetchAllSections(
 			oldSection := prs[i+1].(*Model)
 			sectionModel.Prs = oldSection.Prs
 			sectionModel.LastFetchTaskId = oldSection.LastFetchTaskId
+			// Keep the cursor on the same PR across the refresh.
+			if r := oldSection.GetCurrRow(); r != nil {
+				sectionModel.SetPendingSelection(r.GetUrl())
+			}
 		}
 		if sectionConfig.Layout.AuthorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.AuthorIcon.Hidden

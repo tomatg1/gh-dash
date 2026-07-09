@@ -163,6 +163,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.SetIsLoading(false)
 			m.PageInfo = &msg.PageInfo
 			m.Table.SetRows(m.BuildRows())
+			m.restoreSelection()
 			m.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 		}
@@ -288,6 +289,16 @@ func (m *Model) GetCurrRow() data.RowData {
 	return &issue
 }
 
+// restoreSelection re-selects, by URL, whatever was selected before a refresh
+// rebuilt this section.
+func (m *Model) restoreSelection() {
+	urls := make([]string, len(m.Issues))
+	for i := range m.Issues {
+		urls[i] = m.Issues[i].GetUrl()
+	}
+	m.RestoreSelection(urls)
+}
+
 func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 	if m == nil {
 		return nil
@@ -361,6 +372,7 @@ func (m *Model) ResetRows() {
 
 func FetchAllSections(
 	ctx *context.ProgramContext,
+	issues []section.Section,
 ) (sections []section.Section, fetchAllCmd tea.Cmd) {
 	sectionConfigs := ctx.Config.IssuesSections
 	fetchIssuesCmds := make([]tea.Cmd, 0, len(sectionConfigs))
@@ -375,6 +387,14 @@ func FetchAllSections(
 		) // 0 is the search section
 		if sectionConfig.Layout.CreatorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.CreatorIcon.Hidden
+		}
+		// Keep the cursor on the same issue across the refresh.
+		if i+1 < len(issues) && issues[i+1] != nil {
+			if old, ok := issues[i+1].(*Model); ok {
+				if r := old.GetCurrRow(); r != nil {
+					sectionModel.SetPendingSelection(r.GetUrl())
+				}
+			}
 		}
 		sections = append(sections, &sectionModel)
 		fetchIssuesCmds = append(
