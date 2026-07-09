@@ -5,6 +5,7 @@ package urlopen
 import (
 	"bytes"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"text/template"
@@ -25,6 +26,17 @@ import (
 // stdout/stderr are discarded so launcher noise (xdg-open / GTK warnings, a
 // browser's own logging) can't leak into the TUI and corrupt the display.
 func Open(cmdTemplate, url string) error {
+	return run(cmdTemplate, url, nil)
+}
+
+// Prewarm is like Open but exports GH_DASH_PREWARM=1 to the command, so a helper
+// (e.g. tooling/open-url.sh) can skip work — like adding a tab — when its cache
+// is already warm. Falls back to the OS browser when cmdTemplate is empty.
+func Prewarm(cmdTemplate, url string) error {
+	return run(cmdTemplate, url, []string{"GH_DASH_PREWARM=1"})
+}
+
+func run(cmdTemplate, url string, extraEnv []string) error {
 	if strings.TrimSpace(cmdTemplate) == "" {
 		return browser.New("", io.Discard, io.Discard).Browse(url)
 	}
@@ -42,6 +54,9 @@ func Open(cmdTemplate, url string) error {
 	cmd := exec.Command("sh", "-c", buf.String())
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 
 	return cmd.Run()
 }

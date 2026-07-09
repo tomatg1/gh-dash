@@ -34,6 +34,28 @@ end tell
 AS
 }
 
+# Prints "yes" if a Chrome window with id $1 is open (no tab added).
+window_exists() {
+  osascript 2>/dev/null <<AS
+tell application "Google Chrome"
+  repeat with w in windows
+    if (id of w as string) is "$1" then return "yes"
+  end repeat
+  return "no"
+end tell
+AS
+}
+
+# Pre-warm mode (GH_DASH_PREWARM set): if the cached window is still open, the
+# cache is already warm — do nothing, so we don't add a tab on every launch. If
+# it's cold, fall through and bootstrap (which opens the URL + caches the window).
+if [[ -n "${GH_DASH_PREWARM:-}" && -f "$CACHE" ]]; then
+  wid="$(cat "$CACHE" 2>/dev/null || true)"
+  if [[ -n "$wid" && "$(window_exists "$wid")" == "yes" ]]; then
+    exit 0
+  fi
+fi
+
 # Fast path: reuse the cached profile window if it's still open.
 if [[ -f "$CACHE" ]]; then
   wid="$(cat "$CACHE" 2>/dev/null || true)"

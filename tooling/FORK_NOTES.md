@@ -221,6 +221,11 @@ the first real open is already instant. The URL is derived from the PR sections
 (first `repo:`, else first `org:`, else your PR inbox). Disable with
 `defaults.disableBrowserPrewarm: true`.
 
+The pre-warm sets `GH_DASH_PREWARM=1` on the command (`urlopen.Prewarm`), and
+`open-url.sh` **skips entirely when its cached window is still open** — so a fresh
+tab is only opened when the cache is actually cold (first launch, or after you've
+closed that Chrome window). Frequent restarts don't pile up tabs.
+
 > Chrome maps a display name (e.g. "Work") to a directory (`Profile N`) in
 > `Local State` / each profile's `Preferences`. gh-dash needs the **directory**.
 
