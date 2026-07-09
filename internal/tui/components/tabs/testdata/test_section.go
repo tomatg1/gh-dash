@@ -135,6 +135,9 @@ func (t *TestSection) SetCurrRow(int) int {
 	panic("unimplemented")
 }
 
+// SetPendingSelection implements section.Section.
+func (t *TestSection) SetPendingSelection(string) {}
+
 // ResetFilters implements section.Section.
 func (t *TestSection) ResetFilters() {
 	panic("unimplemented")

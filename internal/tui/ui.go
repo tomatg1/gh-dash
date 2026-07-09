@@ -717,6 +717,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncMainContentDimensions()
 
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
+		// Restore each section's remembered selection so it re-selects the same
+		// item once its first fetch lands (see restoreSelection in each section).
+		for _, s := range newSections {
+			if s == nil {
+				continue
+			}
+			if url := loadSelection(m.layoutStateKey, s.GetConfig().Title); url != "" {
+				s.SetPendingSelection(url)
+			}
+		}
 		m.setCurrentViewSections(newSections)
 		m.tabs.SetCurrSectionId(1)
 
@@ -1055,12 +1065,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if currSection == nil {
 			return m, nil
 		}
-		switch msg.Button {
-		case tea.MouseWheelUp:
-			currSection.PrevRow()
-			cmds = append(cmds, m.onViewedRowChanged())
-		case tea.MouseWheelDown:
-			currSection.NextRow()
+		// Default matches macOS natural scrolling: a two-finger-down gesture (the
+		// terminal reports it as a wheel-up event there) moves the selection DOWN
+		// the list. mouseWheelReverse flips it for a classic mouse.
+		down := msg.Button == tea.MouseWheelUp
+		if m.ctx.Config.Defaults.MouseWheelReverse {
+			down = msg.Button == tea.MouseWheelDown
+		}
+		if msg.Button == tea.MouseWheelUp || msg.Button == tea.MouseWheelDown {
+			if down {
+				currSection.NextRow()
+			} else {
+				currSection.PrevRow()
+			}
 			cmds = append(cmds, m.onViewedRowChanged())
 		}
 
@@ -1294,7 +1311,22 @@ func (m *Model) onViewedRowChanged() tea.Cmd {
 	m.sidebar.ScrollToTop()
 	m.notificationView.ResetSubject()
 	keys.SetNotificationSubject(keys.NotificationSubjectNone)
+	m.persistSelection()
 	return tea.Batch(sidebarCmd, enrichCmd)
+}
+
+// persistSelection remembers the current section's selected item so it can be
+// restored on the next launch of this instance. Best-effort; errors are ignored.
+func (m *Model) persistSelection() {
+	s := m.getCurrSection()
+	if s == nil {
+		return
+	}
+	url := ""
+	if r := s.GetCurrRow(); r != nil {
+		url = r.GetUrl()
+	}
+	_ = saveSelection(m.layoutStateKey, s.GetConfig().Title, url)
 }
 
 func (m *Model) onWindowSizeChanged(msg tea.WindowSizeMsg) {
