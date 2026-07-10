@@ -9,8 +9,16 @@ import (
 )
 
 var (
-	HeaderHeight       = 2
-	SearchHeight       = 3
+	HeaderHeight = 2
+	SearchHeight = 3
+	// MinListHeight is the fewest rows the list section can render: its search
+	// box (SearchHeight) plus the table's header (TableHeaderHeight) and one
+	// empty/loading row with its margin. Budgeting the list less than this does
+	// not shrink it -- the section overflows its allotment and shoves the footer
+	// (and the "? help" toggle) off the bottom of the screen. The layout must
+	// never size the list below this floor. (Measured against the styled render;
+	// see TestFooter_StaysVisibleWithHighSeparatorAndHelp.)
+	MinListHeight      = SearchHeight + TableHeaderHeight + 2
 	FooterHeight       = 1
 	ExpandedHelpHeight = 17
 	InputBoxHeight     = 8
