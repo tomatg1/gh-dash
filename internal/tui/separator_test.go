@@ -104,12 +104,14 @@ func TestSeparatorY_NoneWhenPreviewClosedOrDockedRight(t *testing.T) {
 	require.False(t, ok, "a right-docked preview has no up/down divider")
 }
 
-// Neither pane may be collapsed to nothing: the divider must stay grabbable.
+// Neither pane may be collapsed below what it can render: the list keeps its
+// minimum height (or it overflows and clips the footer) and the preview keeps at
+// least one grabbable row.
 func TestPreviewHeightForSeparatorY_ClampsBothEnds(t *testing.T) {
 	const available = 30
 
-	require.Equal(t, available-1, previewHeightForSeparatorY(-100, available),
-		"dragging above the list still leaves one row of list")
+	require.Equal(t, available-common.MinListHeight, previewHeightForSeparatorY(-100, available),
+		"dragging above the list still leaves the list its minimum height")
 	require.Equal(t, 1, previewHeightForSeparatorY(1000, available),
 		"dragging past the bottom still leaves one row of preview")
 
