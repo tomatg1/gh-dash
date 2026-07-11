@@ -212,7 +212,14 @@ urlOpenCommand: '~/code/gh-dash/tooling/open-url.sh "Profile 3" "{{.URL}}"'
 
 The window-id cache lives in `$XDG_STATE_HOME/gh-dash/chrome-window-<profile>`.
 First open after a Chrome-window closes is slow (re-bootstrap); the rest are
-instant. It brings the window to the front (`activate`).
+instant. It brings the target window to the front and selects the new tab.
+
+**Focusing the right window** (two AppleScript traps): reference the window by
+`window id <n>`, never a `repeat with w in windows` loop variable — the loop
+variable is positional, and `activate` reorders the windows, so a later
+`set index` would raise whatever window slid into that old slot (the one you were
+just on). And set the index **after** `activate`, not before — before
+`make new tab` it won't stick.
 
 **Startup pre-warm.** When `urlOpenCommand` is set, gh-dash opens the first
 configured repo's PR list on launch — in a background goroutine, so it never
@@ -383,6 +390,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.3`–`.8` | urlOpenCommand + fast Chrome-profile open (window-id cache), sub-minute refetch, per-instance state, persisted selection across restarts, mouse-wheel direction, startup browser pre-warm (cold-cache-only) |
 | `v4.25.0-local.10` | footer stays visible when the divider is dragged high + help expanded (reserve the list's minimum height) |
 | `v4.25.0-local.11` | `defaults.mergeQueueRepos`: `m` toggles the native merge queue (enqueue/dequeue) on listed repos; `fireTask` surfaces gh's real stderr |
+| `v4.25.0-local.12` | `open-url.sh` focuses the window that opened the link (id reference + set-index-after-activate), not the previously-focused one |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.

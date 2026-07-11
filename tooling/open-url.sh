@@ -17,19 +17,26 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 CACHE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/gh-dash"
 CACHE="$CACHE_DIR/chrome-window-$(printf '%s' "$PROFILE" | tr -c 'A-Za-z0-9' '_')"
 
-# Add a tab to window $1 via AppleScript. Prints "ok" if that window exists.
+# Add a tab to window $1 and bring that window forward. Prints "ok" if the
+# window exists.
+#
+# Two things that are easy to get wrong here:
+#   * Reference the window by `window id $1`, NOT a `repeat with w in windows`
+#     loop variable. The loop variable is positional (item i); `activate`
+#     reorders the windows, so a later `set index of w` would raise whatever
+#     window now sits at that old position -- the previously-focused one. An
+#     id reference stays pinned to the right window.
+#   * Order: select the new tab, `activate`, then `set index ... to 1` LAST.
+#     Setting the index before `activate` doesn't stick after `make new tab`.
 add_tab() {
   osascript 2>/dev/null <<AS
 tell application "Google Chrome"
-  repeat with w in windows
-    if (id of w as string) is "$1" then
-      make new tab at end of tabs of w with properties {URL:"$URL"}
-      set index of w to 1
-      activate
-      return "ok"
-    end if
-  end repeat
-  return "gone"
+  if not (exists window id $1) then return "gone"
+  make new tab at end of tabs of window id $1 with properties {URL:"$URL"}
+  set active tab index of window id $1 to (count of tabs of window id $1)
+  activate
+  set index of window id $1 to 1
+  return "ok"
 end tell
 AS
 }
