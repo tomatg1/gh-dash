@@ -477,7 +477,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.PRKeys.Merge):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "merge")
+					cmd = m.promptConfirmation(currSection, m.mergeAction(currRowData))
 				}
 				return m, cmd
 
@@ -1426,6 +1426,25 @@ func (m *Model) resolvePreviewPosition() string {
 		return "bottom"
 	}
 	return "right"
+}
+
+// mergeAction picks what the `m` key does for the given row: on a repo that uses
+// the merge queue (defaults.mergeQueueRepos) it toggles the queue -- dequeue if
+// the PR is already queued, else enqueue -- otherwise it's a plain merge. Any
+// non-PR row falls back to "merge".
+func (m *Model) mergeAction(row data.RowData) string {
+	prd, ok := row.(*prrow.Data)
+	if !ok || prd.Primary == nil {
+		return "merge"
+	}
+	if !m.ctx.Config.Defaults.UsesMergeQueue(prd.GetRepoNameWithOwner()) {
+		return "merge"
+	}
+	if prd.Primary.IsInMergeQueue {
+		return "dequeue"
+	}
+
+	return "enqueue"
 }
 
 func (m *Model) getBaseContentHeight() int {

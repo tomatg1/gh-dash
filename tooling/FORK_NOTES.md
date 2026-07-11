@@ -247,6 +247,34 @@ The selected item's URL is remembered per section per instance in the state
 file, and restored on the next launch (the section re-selects that URL once its
 first fetch lands). Saved on every selection change.
 
+### `defaults.mergeQueueRepos` — `m` drives the native merge queue
+
+On a repo with a merge queue but **"Allow auto-merge" disabled**, upstream's `m`
+(which runs `gh pr merge`) fails: GitHub routes queue-add through the
+`enablePullRequestAutoMerge` mutation, which that setting rejects
+(`Auto merge is not allowed for this repository`).
+
+List such a repo under `defaults.mergeQueueRepos` (`"owner/name"`, or `"*"` for
+all) and `m` instead toggles the **native** merge queue — the same path as the
+web "Merge when ready" button, needing no extra permission:
+
+```yaml
+defaults:
+  mergeQueueRepos:
+    - AutonomousTechnologies/autonomous
+```
+
+- PR not queued → `m` runs `enqueuePullRequest(input:{pullRequestId})`.
+- PR already queued → `m` runs `dequeuePullRequest(input:{id})` (note the
+  asymmetric input field — enqueue takes `pullRequestId`, dequeue takes `id`).
+- The queued state shows as the merge-queue icon in the row (`IsInMergeQueue`,
+  flipped optimistically and confirmed on the next fetch).
+
+List **only** repos that actually have a merge queue — enqueue errors on a repo
+without one. Scope is the PRs-view `m` (list + its sidebar); the notifications
+PR-preview still does a plain merge. Failures now surface gh's real error in the
+footer (fork also made `fireTask` capture stderr).
+
 ## Instances
 
 An **instance** scopes persisted state (layout height + selection). Identity:
@@ -352,6 +380,9 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | --- | --- |
 | `v4.25.0-local.1` | mouseMode config, clickable tabs/rows, wheel, drag-select + click-to-open, non-git-repo startup fix |
 | `v4.25.0-local.2` | + double-click/number-to-open, clickable icons + footer + preview tabs, draggable & persisted divider, help-toggle fix, sloppy-click drag threshold, prior-row-clear fix, injectable version string |
+| `v4.25.0-local.3`–`.8` | urlOpenCommand + fast Chrome-profile open (window-id cache), sub-minute refetch, per-instance state, persisted selection across restarts, mouse-wheel direction, startup browser pre-warm (cold-cache-only) |
+| `v4.25.0-local.10` | footer stays visible when the divider is dragged high + help expanded (reserve the list's minimum height) |
+| `v4.25.0-local.11` | `defaults.mergeQueueRepos`: `m` toggles the native merge queue (enqueue/dequeue) on listed repos; `fireTask` surfaces gh's real stderr |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.

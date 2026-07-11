@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -26,6 +27,7 @@ type UpdatePRMsg struct {
 	NewComment       *data.Comment
 	ReadyForReview   *bool
 	IsMerged         *bool
+	IsInMergeQueue   *bool
 	AddedAssignees   *data.Assignees
 	RemovedAssignees *data.Assignees
 	Labels           *data.PRLabels
@@ -64,7 +66,17 @@ func fireTask(ctx *context.ProgramContext, task GitHubTask) tea.Cmd {
 		log.Info("Running task", "cmd", "gh "+strings.Join(task.Args, " "))
 		c := exec.Command("gh", task.Args...)
 
+		// Capture stderr so a failure surfaces gh's actual message (e.g. a
+		// GraphQL error) in the footer instead of a bare "exit status 1".
+		var stderr bytes.Buffer
+		c.Stderr = &stderr
+
 		err := c.Run()
+		if err != nil {
+			if msg := strings.TrimSpace(stderr.String()); msg != "" {
+				err = fmt.Errorf("%s", msg)
+			}
+		}
 		return constants.TaskFinishedMsg{
 			TaskId:      task.Id,
 			SectionId:   task.Section.Id,
@@ -199,6 +211,52 @@ func MergePR(ctx *context.ProgramContext, section SectionIdentifier, pr data.Row
 			},
 		}
 	}))
+}
+
+// enqueueMutation adds a PR to its base branch's merge queue.
+const enqueueMutation = `mutation($id:ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry{ position } } }`
+
+// dequeueMutation removes a PR from the merge queue. Note the input field is
+// `id` (the pull request's node id), NOT `pullRequestId` as enqueue uses -- the
+// two mutations are asymmetric.
+const dequeueMutation = `mutation($id:ID!){ dequeuePullRequest(input:{id:$id}){ mergeQueueEntry{ position } } }`
+
+// EnqueuePR adds a PR to its base branch's merge queue via the native
+// enqueuePullRequest mutation (the same path as the web "Merge when ready"
+// button). Unlike `gh pr merge`, this does NOT require the repo's "Allow
+// auto-merge" setting, so it works on merge-queue repos that keep it disabled.
+func EnqueuePR(ctx *context.ProgramContext, section SectionIdentifier, prNumber int, prId string) tea.Cmd {
+	return fireTask(ctx, GitHubTask{
+		Id:           buildTaskId("pr_enqueue", prNumber),
+		Args:         []string{"api", "graphql", "-f", "query=" + enqueueMutation, "-f", "id=" + prId},
+		Section:      section,
+		StartText:    fmt.Sprintf("Adding PR #%d to the merge queue", prNumber),
+		FinishedText: fmt.Sprintf("PR #%d added to the merge queue", prNumber),
+		Msg: func(c *exec.Cmd, err error) tea.Msg {
+			if err != nil {
+				return UpdatePRMsg{}
+			}
+			return UpdatePRMsg{PrNumber: prNumber, IsInMergeQueue: utils.BoolPtr(true)}
+		},
+	})
+}
+
+// DequeuePR removes a PR from its base branch's merge queue via the native
+// dequeuePullRequest mutation.
+func DequeuePR(ctx *context.ProgramContext, section SectionIdentifier, prNumber int, prId string) tea.Cmd {
+	return fireTask(ctx, GitHubTask{
+		Id:           buildTaskId("pr_dequeue", prNumber),
+		Args:         []string{"api", "graphql", "-f", "query=" + dequeueMutation, "-f", "id=" + prId},
+		Section:      section,
+		StartText:    fmt.Sprintf("Removing PR #%d from the merge queue", prNumber),
+		FinishedText: fmt.Sprintf("PR #%d removed from the merge queue", prNumber),
+		Msg: func(c *exec.Cmd, err error) tea.Msg {
+			if err != nil {
+				return UpdatePRMsg{}
+			}
+			return UpdatePRMsg{PrNumber: prNumber, IsInMergeQueue: utils.BoolPtr(false)}
+		},
+	})
 }
 
 func CreatePR(

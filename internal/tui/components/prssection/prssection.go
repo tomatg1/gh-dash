@@ -101,6 +101,14 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 						cmd = tasks.PRReady(m.Ctx, sid, pr)
 					case "merge":
 						cmd = tasks.MergePR(m.Ctx, sid, pr)
+					case "enqueue":
+						if prd, ok := pr.(*prrow.Data); ok && prd.Primary != nil {
+							cmd = tasks.EnqueuePR(m.Ctx, sid, prd.Primary.Number, prd.Primary.Id)
+						}
+					case "dequeue":
+						if prd, ok := pr.(*prrow.Data); ok && prd.Primary != nil {
+							cmd = tasks.DequeuePR(m.Ctx, sid, prd.Primary.Number, prd.Primary.Id)
+						}
 					case "update":
 						cmd = tasks.UpdatePR(m.Ctx, sid, pr)
 					case "approveWorkflows":
@@ -189,6 +197,9 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			if msg.IsMerged != nil && *msg.IsMerged {
 				currPr.Primary.State = "MERGED"
 				currPr.Primary.Mergeable = ""
+			}
+			if msg.IsInMergeQueue != nil {
+				currPr.Primary.IsInMergeQueue = *msg.IsInMergeQueue
 			}
 			m.Prs[i] = currPr
 			m.SetIsLoading(false)

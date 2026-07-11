@@ -220,6 +220,26 @@ type Defaults struct {
 	// background) so the browser/profile window is ready and later opens are
 	// instant. Set true to skip it.
 	DisableBrowserPrewarm bool `yaml:"disableBrowserPrewarm,omitempty"`
+	// MergeQueueRepos lists repos ("owner/name", or "*" for all) whose PRs the
+	// `m` action toggles on the native merge queue -- enqueue when out, dequeue
+	// when already queued (GitHub's enqueue/dequeuePullRequest) -- instead of
+	// running `gh pr merge`. Needed when a repo has a merge queue but "Allow
+	// auto-merge" disabled, which makes `gh pr merge` fail with "Auto merge is
+	// not allowed for this repository".
+	MergeQueueRepos []string `yaml:"mergeQueueRepos,omitempty"`
+}
+
+// UsesMergeQueue reports whether the `m` action should drive the native merge
+// queue (enqueue/dequeue) for a repo, rather than `gh pr merge`. Matches an
+// exact "owner/name" (case-insensitive) or the "*" wildcard.
+func (d Defaults) UsesMergeQueue(repoNameWithOwner string) bool {
+	for _, r := range d.MergeQueueRepos {
+		if r == "*" || strings.EqualFold(r, repoNameWithOwner) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // EffectiveRefetchSeconds is the auto-refresh cadence in seconds.
