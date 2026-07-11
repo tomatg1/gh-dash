@@ -65,6 +65,7 @@ type EnrichedPullRequestData struct {
 }
 
 type PullRequestData struct {
+	Id     string `graphql:"id"`
 	Number int
 	Title  string
 	Author struct {

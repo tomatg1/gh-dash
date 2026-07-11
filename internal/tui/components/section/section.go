@@ -527,6 +527,12 @@ func (m *BaseModel) GetPromptConfirmation() string {
 		case m.PromptConfirmationAction == "merge" && m.Ctx.View == config.PRsView:
 			prompt = "Are you sure you want to merge this PR? (y/N) "
 
+		case m.PromptConfirmationAction == "enqueue" && m.Ctx.View == config.PRsView:
+			prompt = "Add this PR to the merge queue? (y/N) "
+
+		case m.PromptConfirmationAction == "dequeue" && m.Ctx.View == config.PRsView:
+			prompt = "Remove this PR from the merge queue? (y/N) "
+
 		case m.PromptConfirmationAction == "update" && m.Ctx.View == config.PRsView:
 			prompt = "Are you sure you want to update this PR? (y/N) "
 
