@@ -17,8 +17,14 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 CACHE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/gh-dash"
 CACHE="$CACHE_DIR/chrome-window-$(printf '%s' "$PROFILE" | tr -c 'A-Za-z0-9' '_')"
 
-# Add a tab to window $1 and bring that window forward. Prints "ok" if the
-# window exists.
+# Show $URL in window $1 and bring that window forward. Reuses a tab already on
+# that URL instead of opening a duplicate; otherwise appends a new tab. Prints
+# "ok" if the window exists, "gone" if it doesn't.
+#
+# A tab counts as already-open when its URL, minus any #fragment, is the target
+# or a sub-page of it -- so the PR you're reading on /files, or scrolled to an
+# #issuecomment anchor, is reused rather than duplicated. The "/" and "?" bounds
+# keep .../pull/627 from matching .../pull/6270.
 #
 # Two things that are easy to get wrong here:
 #   * Reference the window by `window id $1`, NOT a `repeat with w in windows`
@@ -26,14 +32,44 @@ CACHE="$CACHE_DIR/chrome-window-$(printf '%s' "$PROFILE" | tr -c 'A-Za-z0-9' '_'
 #     reorders the windows, so a later `set index of w` would raise whatever
 #     window now sits at that old position -- the previously-focused one. An
 #     id reference stays pinned to the right window.
-#   * Order: select the new tab, `activate`, then `set index ... to 1` LAST.
+#   * Order: select the tab, `activate`, then `set index ... to 1` LAST.
 #     Setting the index before `activate` doesn't stick after `make new tab`.
 add_tab() {
   osascript 2>/dev/null <<AS
+on baseOf(u)
+  set AppleScript's text item delimiters to "#"
+  set b to text item 1 of u
+  set AppleScript's text item delimiters to ""
+  return b
+end baseOf
+
+on isSameUrl(tabUrl, target)
+  set b to my baseOf(tabUrl)
+  if b is target then return true
+  if b starts with (target & "/") then return true
+  if b starts with (target & "?") then return true
+  return false
+end isSameUrl
+
 tell application "Google Chrome"
   if not (exists window id $1) then return "gone"
-  make new tab at end of tabs of window id $1 with properties {URL:"$URL"}
-  set active tab index of window id $1 to (count of tabs of window id $1)
+  set w to window id $1
+
+  set found to 0
+  repeat with i from 1 to (count of tabs of w)
+    if my isSameUrl(URL of tab i of w, "$URL") then
+      set found to i
+      exit repeat
+    end if
+  end repeat
+
+  if found > 0 then
+    set active tab index of w to found
+  else
+    make new tab at end of tabs of w with properties {URL:"$URL"}
+    set active tab index of w to (count of tabs of w)
+  end if
+
   activate
   set index of window id $1 to 1
   return "ok"
