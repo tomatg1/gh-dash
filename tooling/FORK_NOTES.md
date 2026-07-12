@@ -212,7 +212,14 @@ urlOpenCommand: '~/code/gh-dash/tooling/open-url.sh "Profile 3" "{{.URL}}"'
 
 The window-id cache lives in `$XDG_STATE_HOME/gh-dash/chrome-window-<profile>`.
 First open after a Chrome-window closes is slow (re-bootstrap); the rest are
-instant. It brings the target window to the front and selects the new tab.
+instant. It brings the target window to the front and selects the tab.
+
+**No duplicate tabs.** If the window already has the URL open, that tab is
+selected instead of a second one being appended. A tab matches when its URL,
+minus any `#fragment`, is the target *or a sub-page of it* — so a PR you're
+reading on `/files`, or scrolled to an `#issuecomment` anchor, is reused rather
+than duplicated (you land on that tab as-is, not a fresh Conversation view). The
+`/` and `?` bounds keep `.../pull/627` from matching `.../pull/6270`.
 
 **Focusing the right window** (two AppleScript traps): reference the window by
 `window id <n>`, never a `repeat with w in windows` loop variable — the loop
@@ -391,6 +398,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.10` | footer stays visible when the divider is dragged high + help expanded (reserve the list's minimum height) |
 | `v4.25.0-local.11` | `defaults.mergeQueueRepos`: `m` toggles the native merge queue (enqueue/dequeue) on listed repos; `fireTask` surfaces gh's real stderr |
 | `v4.25.0-local.12` | `open-url.sh` focuses the window that opened the link (id reference + set-index-after-activate), not the previously-focused one |
+| `v4.25.0-local.13` | `open-url.sh` reuses a tab already on the URL (incl. sub-pages/anchors) instead of opening a duplicate |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.
