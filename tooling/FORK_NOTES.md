@@ -228,6 +228,16 @@ variable is positional, and `activate` reorders the windows, so a later
 just on). And set the index **after** `activate`, not before — before
 `make new tab` it won't stick.
 
+**Only raise when needed.** If the target is already Chrome's front (most-
+recently-active) window, skip `activate`/`set index` entirely — `activate` is
+app-level (it pulls *every* Chrome window, all profiles, above other apps), so
+raising a window that's already active needlessly surfaces the other-profile
+windows. Verified: with the target already front, opening a link leaves the whole
+window z-order unchanged. Caveat: `make new tab` (and navigating a tab) brings
+Chrome-the-app forward on their own — that's Chrome's behavior, not ours — but no
+*other* window ever comes above the target, and the reuse path (URL already open,
+just `set active tab index`) doesn't activate Chrome at all.
+
 **Startup pre-warm.** When `urlOpenCommand` is set, gh-dash opens the first
 configured repo's PR list on launch — in a background goroutine, so it never
 blocks startup — which warms the window-id cache and leaves a useful tab open, so
@@ -399,6 +409,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.11` | `defaults.mergeQueueRepos`: `m` toggles the native merge queue (enqueue/dequeue) on listed repos; `fireTask` surfaces gh's real stderr |
 | `v4.25.0-local.12` | `open-url.sh` focuses the window that opened the link (id reference + set-index-after-activate), not the previously-focused one |
 | `v4.25.0-local.13` | `open-url.sh` reuses a tab already on the URL (incl. sub-pages/anchors) instead of opening a duplicate |
+| `v4.25.0-local.14` | `open-url.sh` skips the raise when the target is already Chrome's front window — no more surfacing other-profile windows |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.
