@@ -34,6 +34,11 @@ CACHE="$CACHE_DIR/chrome-window-$(printf '%s' "$PROFILE" | tr -c 'A-Za-z0-9' '_'
 #     id reference stays pinned to the right window.
 #   * Order: select the tab, `activate`, then `set index ... to 1` LAST.
 #     Setting the index before `activate` doesn't stick after `make new tab`.
+#   * Only raise when needed: if the target is ALREADY Chrome's front (most-
+#     recently-active) window, skip `activate`/`set index` entirely. `activate`
+#     is app-level -- it pulls every Chrome window (all profiles) above other
+#     apps -- so raising when the target is already active needlessly surfaces
+#     the other-profile windows. When another window is front we still raise.
 add_tab() {
   osascript 2>/dev/null <<AS
 on baseOf(u)
@@ -70,8 +75,10 @@ tell application "Google Chrome"
     set active tab index of w to (count of tabs of w)
   end if
 
-  activate
-  set index of window id $1 to 1
+  if (id of front window) is not $1 then
+    activate
+    set index of window id $1 to 1
+  end if
   return "ok"
 end tell
 AS
