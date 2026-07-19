@@ -388,12 +388,19 @@ func FetchAllSections(
 		if sectionConfig.Layout.CreatorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.CreatorIcon.Hidden
 		}
-		// Keep the cursor on the same issue across the refresh.
+		// Carry the old rows AND cursor across the refresh so the list doesn't
+		// blank (then flash the cursor to the top) while the fetch is in flight.
+		// The pending-selection URL stays armed so the cursor is re-pinned once
+		// the fresh, possibly reordered data lands.
 		if i+1 < len(issues) && issues[i+1] != nil {
 			if old, ok := issues[i+1].(*Model); ok {
+				sectionModel.Issues = old.Issues
+				sectionModel.LastFetchTaskId = old.LastFetchTaskId
 				if r := old.GetCurrRow(); r != nil {
 					sectionModel.SetPendingSelection(r.GetUrl())
 				}
+				sectionModel.Table.SetRows(sectionModel.BuildRows())
+				sectionModel.Table.SetCurrItem(old.Table.GetCurrItem())
 			}
 		}
 		sections = append(sections, &sectionModel)
