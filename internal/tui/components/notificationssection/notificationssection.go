@@ -853,9 +853,15 @@ func FetchAllSections(
 				sectionModel.SearchValue = oldSection.SearchValue
 				sectionModel.SearchBar.SetValue(oldSection.SearchValue)
 				// Keep the cursor on the same notification across the refresh.
+				// Render the carried-over rows with the cursor already in place NOW,
+				// so the list doesn't flash to the top row while the fetch is in
+				// flight. The pending-selection URL stays armed to re-pin by URL
+				// once the fresh, possibly reordered data lands.
 				if r := oldSection.GetCurrRow(); r != nil {
 					sectionModel.SetPendingSelection(r.GetUrl())
 				}
+				sectionModel.Table.SetRows(sectionModel.BuildRows())
+				sectionModel.Table.SetCurrItem(oldSection.Table.GetCurrItem())
 			}
 		}
 
