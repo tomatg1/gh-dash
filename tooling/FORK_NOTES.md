@@ -271,6 +271,13 @@ The selected item's URL is remembered per section per instance in the state
 file, and restored on the next launch (the section re-selects that URL once its
 first fetch lands). Saved on every selection change.
 
+A refresh rebuilds each PR section from scratch (fresh table, cursor 0) while
+carrying the old rows, so the cursor is placed **immediately** in
+`FetchAllSections` (not only when the fetch lands) — otherwise the list flashes
+to the top row for the duration of the fetch, and a keypress in that window acts
+on the wrong PR. The pending-selection URL stays armed to re-pin the cursor after
+the fresh (possibly reordered) data arrives.
+
 ### `defaults.mergeQueueRepos` — `m` drives the native merge queue
 
 On a repo with a merge queue but **"Allow auto-merge" disabled**, upstream's `m`
@@ -410,6 +417,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.12` | `open-url.sh` focuses the window that opened the link (id reference + set-index-after-activate), not the previously-focused one |
 | `v4.25.0-local.13` | `open-url.sh` reuses a tab already on the URL (incl. sub-pages/anchors) instead of opening a duplicate |
 | `v4.25.0-local.14` | `open-url.sh` skips the raise when the target is already Chrome's front window — no more surfacing other-profile windows |
+| `v4.25.0-local.15` | refresh no longer flashes the PR-list cursor to the top before restoring the selection (place the cursor in `FetchAllSections`) |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.
