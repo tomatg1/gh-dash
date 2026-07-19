@@ -566,10 +566,17 @@ func FetchAllSections(
 			oldSection := prs[i+1].(*Model)
 			sectionModel.Prs = oldSection.Prs
 			sectionModel.LastFetchTaskId = oldSection.LastFetchTaskId
-			// Keep the cursor on the same PR across the refresh.
+			// Keep the cursor on the same PR across the refresh. Render the
+			// carried-over rows with the cursor already in place NOW, so the list
+			// doesn't flash to the top row while the fetch is in flight (a keypress
+			// in that window would otherwise act on the wrong PR). SetPendingSelection
+			// stays armed so the cursor is re-pinned by URL once the fresh, possibly
+			// reordered data lands.
 			if r := oldSection.GetCurrRow(); r != nil {
 				sectionModel.SetPendingSelection(r.GetUrl())
 			}
+			sectionModel.Table.SetRows(sectionModel.BuildRows())
+			sectionModel.Table.SetCurrItem(oldSection.Table.GetCurrItem())
 		}
 		if sectionConfig.Layout.AuthorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.AuthorIcon.Hidden
