@@ -516,6 +516,21 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 			}
 		}
 
+		// search() doesn't return isInMergeQueue, so enrich queued state from the
+		// authoritative per-repo merge queue (scoped to mergeQueueRepos).
+		data.EnrichMergeQueueStatus(m.Ctx.Config.Defaults, res.Prs)
+
+		// Keep recently-merged PRs visible for a configurable window. Only on the
+		// first page (PageInfo == nil) so pagination doesn't re-append them.
+		if m.PageInfo == nil {
+			if w := m.Ctx.Config.Defaults.ResolveMergedWindow(m.Config.ShowMergedFor); w > 0 {
+				mergedQ := data.MergedSinceQuery(m.GetFilters(), time.Now().Add(-w))
+				if mres, mErr := data.FetchPullRequests(mergedQ, *limit, nil); mErr == nil {
+					res.Prs = append(res.Prs, mres.Prs...)
+				}
+			}
+		}
+
 		prs := make([]prrow.Data, 0)
 		for _, pr := range res.Prs {
 			prs = append(prs, prrow.Data{Primary: &pr})
