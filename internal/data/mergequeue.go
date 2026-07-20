@@ -1,0 +1,112 @@
+package data
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	graphql "github.com/cli/shurcooL-graphql"
+
+	"github.com/dlvhdr/gh-dash/v4/internal/config"
+)
+
+// FetchMergeQueueNumbers returns the set of PR numbers currently sitting in a
+// repo's merge queue for the given base branch.
+//
+// The PR list is fetched via GitHub's search API, which does NOT populate the
+// expensive computed field isInMergeQueue (it comes back false, same as
+// mergeStateStatus comes back UNKNOWN). The authoritative source is the repo's
+// mergeQueue.entries, so we enrich the list from here instead.
+func FetchMergeQueueNumbers(owner, name, branch string) (map[int]bool, error) {
+	if client == nil {
+		return nil, nil
+	}
+
+	var q struct {
+		Repository struct {
+			MergeQueue struct {
+				Entries struct {
+					Nodes []struct {
+						PullRequest struct{ Number int }
+					}
+				} `graphql:"entries(first: 100)"`
+			} `graphql:"mergeQueue(branch: $branch)"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+	vars := map[string]any{
+		"owner":  graphql.String(owner),
+		"name":   graphql.String(name),
+		"branch": graphql.String(branch),
+	}
+	if err := client.Query("MergeQueue", &q, vars); err != nil {
+		return nil, err
+	}
+
+	out := make(map[int]bool)
+	for _, n := range q.Repository.MergeQueue.Entries.Nodes {
+		out[n.PullRequest.Number] = true
+	}
+
+	return out, nil
+}
+
+// EnrichMergeQueueStatus sets IsInMergeQueue on the PRs whose repo is configured
+// as a merge-queue repo (defaults.mergeQueueRepos) and which are actually in the
+// queue. Best-effort: a failed query for one repo just leaves those PRs
+// un-flagged. Scoped to mergeQueueRepos so it costs one query per distinct
+// (repo, base branch) present, not one per repo in the results.
+func EnrichMergeQueueStatus(d config.Defaults, prs []PullRequestData) {
+	if len(prs) == 0 {
+		return
+	}
+
+	// queued[repo][number] = true, filled once per distinct (repo, base).
+	queued := make(map[string]map[int]bool)
+	fetched := make(map[string]bool) // repo\x00base already queried
+
+	for i := range prs {
+		repo := prs[i].GetRepoNameWithOwner()
+		if !d.UsesMergeQueue(repo) {
+			continue
+		}
+		base := prs[i].BaseRefName
+		key := repo + "\x00" + base
+		if fetched[key] {
+			continue
+		}
+		fetched[key] = true
+
+		owner, name := prs[i].GetRepoNameAndOwner()
+		nums, err := FetchMergeQueueNumbers(owner, name, base)
+		if err != nil {
+			continue
+		}
+		if queued[repo] == nil {
+			queued[repo] = make(map[int]bool)
+		}
+		for n := range nums {
+			queued[repo][n] = true
+		}
+	}
+
+	for i := range prs {
+		if q := queued[prs[i].GetRepoNameWithOwner()]; q != nil && q[prs[i].Number] {
+			prs[i].IsInMergeQueue = true
+		}
+	}
+}
+
+// MergedSinceQuery derives a "recently merged" search filter from a section's
+// filter: swap is:open for is:merged (or append is:merged) and constrain to PRs
+// merged at or after `since`. Everything else in the filter (org:/repo:/author:/
+// labels) is kept, so it mirrors the section's scope.
+func MergedSinceQuery(baseFilter string, since time.Time) string {
+	f := baseFilter
+	if strings.Contains(f, "is:open") {
+		f = strings.Replace(f, "is:open", "is:merged", 1)
+	} else {
+		f = strings.TrimSpace(f + " is:merged")
+	}
+
+	return fmt.Sprintf("%s merged:>=%s", f, since.UTC().Format(time.RFC3339))
+}

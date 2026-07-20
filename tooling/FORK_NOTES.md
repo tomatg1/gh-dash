@@ -307,6 +307,33 @@ without one. Scope is the PRs-view `m` (list + its sidebar); the notifications
 PR-preview still does a plain merge. Failures now surface gh's real error in the
 footer (fork also made `fireTask` capture stderr).
 
+**Showing queued state in the list.** The list is fetched via GitHub's `search`
+API, which does **not** populate `isInMergeQueue` (an expensive computed field —
+it comes back `false`, same as `mergeStateStatus` comes back `UNKNOWN`). So the
+merge-queue icon never triggered from the search alone. The list is now
+**enriched** after each fetch from the authoritative `repository.mergeQueue.
+entries`, scoped to `mergeQueueRepos` — one extra query per distinct (repo, base
+branch) present, so an `org:` tab doesn't fan out. `data/mergequeue.go`.
+
+### `defaults.showMergedFor` — keep recently-merged PRs visible
+
+A PR filtered by `is:open` vanishes the instant it merges (e.g. through the
+queue). Set `defaults.showMergedFor` (a Go duration like `"1h"`; empty/`"0"` =
+off) and each PR section runs a **second** search — the section's filter with
+`is:open`→`is:merged` plus `merged:>=<now-window>` — and appends the results
+(they render with the merged icon). Global default, overridable per section:
+
+```yaml
+defaults:
+  showMergedFor: "1h"
+prSections:
+  - title: All (org)
+    showMergedFor: "30m"
+```
+
+Fetched only on the first page (not while paginating). `MergedSinceQuery` in
+`data/mergequeue.go`; wired in the PR section's fetch.
+
 ## Instances
 
 An **instance** scopes persisted state (layout height + selection). Identity:
@@ -420,6 +447,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.14` | `open-url.sh` skips the raise when the target is already Chrome's front window — no more surfacing other-profile windows |
 | `v4.25.0-local.15` | refresh no longer flashes the PR-list cursor to the top before restoring the selection (place the cursor in `FetchAllSections`) |
 | `v4.25.0-local.16` | same refresh smoothing for the issues + notifications lists (issues also no longer blanks mid-refresh) |
+| `v4.25.0-local.17` | show merge-queue state in the list (enrich from `mergeQueue.entries`, since search omits it) + `defaults.showMergedFor` to keep recently-merged PRs |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.

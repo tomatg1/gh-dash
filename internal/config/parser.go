@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
@@ -84,6 +85,9 @@ type SectionConfig struct {
 	Filters string
 	Limit   *int      `yaml:"limit,omitempty"`
 	Type    *ViewType `yaml:"type,omitempty"`
+	// ShowMergedFor overrides defaults.showMergedFor for this section (a Go
+	// duration like "1h"; empty = inherit the default). See Defaults.ShowMergedFor.
+	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
 }
 
 type PrsSectionConfig struct {
@@ -92,6 +96,8 @@ type PrsSectionConfig struct {
 	Limit   *int            `yaml:"limit,omitempty"`
 	Layout  PrsLayoutConfig `yaml:"layout,omitempty"`
 	Type    *ViewType       `yaml:"type,omitempty"`
+	// ShowMergedFor overrides defaults.showMergedFor for this section.
+	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
 }
 
 type IssuesSectionConfig struct {
@@ -227,6 +233,31 @@ type Defaults struct {
 	// auto-merge" disabled, which makes `gh pr merge` fail with "Auto merge is
 	// not allowed for this repository".
 	MergeQueueRepos []string `yaml:"mergeQueueRepos,omitempty"`
+	// ShowMergedFor keeps recently-merged PRs in the PR list for a window after
+	// they merge (a Go duration like "1h"; empty/"0" = off). PR sections fetch a
+	// second query for `is:merged merged:>=<now-window>` and append the results,
+	// so a PR you just merged doesn't vanish. Overridable per section via
+	// PrsSectionConfig.ShowMergedFor.
+	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
+}
+
+// ResolveMergedWindow returns the recently-merged window for a PR section: the
+// section's ShowMergedFor if set, else the global default. Returns 0 (off) when
+// unset, "0", or unparseable.
+func (d Defaults) ResolveMergedWindow(sectionShowMergedFor string) time.Duration {
+	v := sectionShowMergedFor
+	if v == "" {
+		v = d.ShowMergedFor
+	}
+	if v == "" {
+		return 0
+	}
+	dur, err := time.ParseDuration(v)
+	if err != nil || dur <= 0 {
+		return 0
+	}
+
+	return dur
 }
 
 // UsesMergeQueue reports whether the `m` action should drive the native merge

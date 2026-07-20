@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestUsesMergeQueue(t *testing.T) {
 	cases := []struct {
@@ -21,6 +24,32 @@ func TestUsesMergeQueue(t *testing.T) {
 			d := Defaults{MergeQueueRepos: tc.repos}
 			if got := d.UsesMergeQueue(tc.repo); got != tc.want {
 				t.Errorf("UsesMergeQueue(%q) with %v = %v, want %v", tc.repo, tc.repos, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveMergedWindow(t *testing.T) {
+	cases := []struct {
+		name    string
+		def     string
+		section string
+		want    time.Duration
+	}{
+		{"off by default", "", "", 0},
+		{"global default", "1h", "", time.Hour},
+		{"section overrides default", "1h", "30m", 30 * time.Minute},
+		{"section set, no default", "", "45m", 45 * time.Minute},
+		{`"0" is off`, "0", "", 0},
+		{"unparseable is off", "nope", "", 0},
+		{"unparseable section is off", "1h", "nope", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := Defaults{ShowMergedFor: tc.def}
+			if got := d.ResolveMergedWindow(tc.section); got != tc.want {
+				t.Errorf("ResolveMergedWindow(def=%q, section=%q) = %v, want %v",
+					tc.def, tc.section, got, tc.want)
 			}
 		})
 	}
