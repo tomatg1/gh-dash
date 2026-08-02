@@ -11,6 +11,7 @@ import (
 	"charm.land/log/v2"
 
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
+	"github.com/dlvhdr/gh-dash/v4/internal/prefs"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
 	"github.com/dlvhdr/gh-dash/v4/internal/utils"
@@ -211,6 +212,41 @@ func MergePR(ctx *context.ProgramContext, section SectionIdentifier, pr data.Row
 			},
 		}
 	}))
+}
+
+// MergePRWithMethod merges a PR with an explicit strategy ("squash" | "merge" |
+// "rebase"). Passing the method flag is what makes `gh pr merge` non-interactive
+// -- without it gh prompts for the strategy and then for a final submit, per PR
+// -- so unlike MergePR this runs as a normal background task (no TUI suspend,
+// and a failure surfaces gh's real error in the footer).
+//
+// The method is remembered for the repo only on success, so a strategy the repo
+// doesn't allow is never learned.
+func MergePRWithMethod(
+	ctx *context.ProgramContext,
+	section SectionIdentifier,
+	pr data.RowData,
+	method string,
+) tea.Cmd {
+	prNumber := pr.GetNumber()
+	repo := pr.GetRepoNameWithOwner()
+
+	return fireTask(ctx, GitHubTask{
+		Id:           buildTaskId("pr_merge", prNumber),
+		Args:         []string{"pr", "merge", fmt.Sprint(prNumber), "-R", repo, "--" + method},
+		Section:      section,
+		StartText:    fmt.Sprintf("Merging PR #%d (%s)", prNumber, method),
+		FinishedText: fmt.Sprintf("PR #%d has been merged (%s)", prNumber, method),
+		Msg: func(c *exec.Cmd, err error) tea.Msg {
+			if err != nil {
+				return UpdatePRMsg{}
+			}
+			// Learn the choice only once it's proven to work on this repo.
+			_ = prefs.SaveMergeMethod(repo, method)
+
+			return UpdatePRMsg{PrNumber: prNumber, IsMerged: utils.BoolPtr(true)}
+		},
+	})
 }
 
 // enqueueMutation adds a PR to its base branch's merge queue.

@@ -3,6 +3,7 @@ package prssection
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -22,6 +23,22 @@ import (
 )
 
 const SectionType = "pr"
+
+// mergeMethodFromKey maps the merge-method picker's answer to a `gh pr merge`
+// strategy flag. Accepts the initial letter or the full word; "" for anything
+// else, which cancels (so Enter or a stray key never merges).
+func mergeMethodFromKey(input string) string {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "s", "squash":
+		return "squash"
+	case "m", "merge":
+		return "merge"
+	case "r", "rebase":
+		return "rebase"
+	}
+
+	return ""
+}
 
 type Model struct {
 	section.BaseModel
@@ -91,6 +108,20 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 				action := m.GetPromptConfirmationAction()
 				pr := m.GetCurrRow()
 				sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
+
+				// The merge-method picker answers with a strategy letter rather
+				// than y/N: it IS the confirmation, and the choice is remembered
+				// for the repo once the merge succeeds.
+				if action == "merge_method" {
+					if method := mergeMethodFromKey(input); method != "" && pr != nil {
+						cmd = tasks.MergePRWithMethod(m.Ctx, sid, pr, method)
+					}
+					m.PromptConfirmationBox.Reset()
+					blinkCmd := m.SetIsPromptConfirmationShown(false)
+
+					return m, tea.Batch(cmd, blinkCmd)
+				}
+
 				if input == "Y" || input == "y" {
 					switch action {
 					case "close":
@@ -101,6 +132,9 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 						cmd = tasks.PRReady(m.Ctx, sid, pr)
 					case "merge":
 						cmd = tasks.MergePR(m.Ctx, sid, pr)
+					case "merge_squash", "merge_merge", "merge_rebase":
+						cmd = tasks.MergePRWithMethod(
+							m.Ctx, sid, pr, strings.TrimPrefix(action, "merge_"))
 					case "enqueue":
 						if prd, ok := pr.(*prrow.Data); ok && prd.Primary != nil {
 							cmd = tasks.EnqueuePR(m.Ctx, sid, prd.Primary.Number, prd.Primary.Id)

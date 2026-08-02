@@ -29,6 +29,46 @@ func TestUsesMergeQueue(t *testing.T) {
 	}
 }
 
+func TestResolveMergeMethod(t *testing.T) {
+	cases := []struct {
+		name    string
+		global  string
+		perRepo map[string]string
+		repo    string
+		want    string
+	}{
+		{"nothing configured -> ask", "", nil, "owner/repo", ""},
+		{"global default", "squash", nil, "owner/repo", "squash"},
+		{"per-repo overrides global", "squash", map[string]string{"owner/repo": "rebase"}, "owner/repo", "rebase"},
+		{"per-repo only applies to that repo", "squash", map[string]string{"owner/other": "rebase"}, "owner/repo", "squash"},
+		{"per-repo is case-insensitive", "", map[string]string{"Owner/Repo": "merge"}, "owner/repo", "merge"},
+		{"value is normalized", "SQUASH", nil, "owner/repo", "squash"},
+		{"invalid global -> ask", "fast-forward", nil, "owner/repo", ""},
+		{"invalid per-repo falls back to global", "squash", map[string]string{"owner/repo": "nope"}, "owner/repo", "squash"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := Defaults{MergeMethod: tc.global, MergeMethodRepos: tc.perRepo}
+			if got := d.ResolveMergeMethod(tc.repo); got != tc.want {
+				t.Errorf("ResolveMergeMethod(%q) = %q, want %q", tc.repo, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidMergeMethod(t *testing.T) {
+	for _, ok := range []string{"squash", "merge", "rebase", "Squash", "REBASE"} {
+		if !ValidMergeMethod(ok) {
+			t.Errorf("ValidMergeMethod(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"", "fast-forward", "ff", "sqush"} {
+		if ValidMergeMethod(bad) {
+			t.Errorf("ValidMergeMethod(%q) = true, want false", bad)
+		}
+	}
+}
+
 func TestResolveMergedWindow(t *testing.T) {
 	cases := []struct {
 		name    string

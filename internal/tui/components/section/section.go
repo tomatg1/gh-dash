@@ -527,6 +527,19 @@ func (m *BaseModel) GetPromptConfirmation() string {
 		case m.PromptConfirmationAction == "merge" && m.Ctx.View == config.PRsView:
 			prompt = "Are you sure you want to merge this PR? (y/N) "
 
+		case m.PromptConfirmationAction == "merge_squash" && m.Ctx.View == config.PRsView:
+			prompt = "Squash and merge this PR? (y/N) "
+
+		case m.PromptConfirmationAction == "merge_merge" && m.Ctx.View == config.PRsView:
+			prompt = "Merge this PR with a merge commit? (y/N) "
+
+		case m.PromptConfirmationAction == "merge_rebase" && m.Ctx.View == config.PRsView:
+			prompt = "Rebase and merge this PR? (y/N) "
+
+		// Asked once per repo; the answer is remembered for every gh-dash window.
+		case m.PromptConfirmationAction == "merge_method" && m.Ctx.View == config.PRsView:
+			prompt = "Merge how? (s)quash / (m)erge commit / (r)ebase — remembered for this repo: "
+
 		case m.PromptConfirmationAction == "enqueue" && m.Ctx.View == config.PRsView:
 			prompt = "Add this PR to the merge queue? (y/N) "
 
