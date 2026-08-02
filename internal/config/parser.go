@@ -233,12 +233,54 @@ type Defaults struct {
 	// auto-merge" disabled, which makes `gh pr merge` fail with "Auto merge is
 	// not allowed for this repository".
 	MergeQueueRepos []string `yaml:"mergeQueueRepos,omitempty"`
+	// MergeMethod is the strategy `m` uses on repos WITHOUT a merge queue:
+	// "squash", "merge", or "rebase". Set it and the merge runs non-interactively
+	// -- without a method flag `gh pr merge` prompts for the strategy and then
+	// for a final submit, on every single PR. Empty = ask once per repo and
+	// remember the answer globally (see internal/prefs).
+	MergeMethod string `yaml:"mergeMethod,omitempty"`
+	// MergeMethodRepos overrides MergeMethod for specific repos
+	// ("owner/name" -> "squash"|"merge"|"rebase").
+	MergeMethodRepos map[string]string `yaml:"mergeMethodRepos,omitempty"`
 	// ShowMergedFor keeps recently-merged PRs in the PR list for a window after
 	// they merge (a Go duration like "1h"; empty/"0" = off). PR sections fetch a
 	// second query for `is:merged merged:>=<now-window>` and append the results,
 	// so a PR you just merged doesn't vanish. Overridable per section via
 	// PrsSectionConfig.ShowMergedFor.
 	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
+}
+
+// MergeMethods are the strategies `gh pr merge` accepts as a flag. Passing one
+// is what makes the merge non-interactive: without it gh prompts for the method
+// AND for a final submit, per PR.
+var MergeMethods = []string{"squash", "merge", "rebase"}
+
+// ValidMergeMethod reports whether s names a merge strategy (case-insensitive).
+func ValidMergeMethod(s string) bool {
+	for _, m := range MergeMethods {
+		if strings.EqualFold(s, m) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ResolveMergeMethod returns the configured merge strategy for a repo: the
+// per-repo mergeMethodRepos entry if present, else the global mergeMethod.
+// Returns "" when nothing valid is configured (the caller then falls back to the
+// remembered per-repo choice, and finally to asking once).
+func (d Defaults) ResolveMergeMethod(repoNameWithOwner string) string {
+	for repo, method := range d.MergeMethodRepos {
+		if strings.EqualFold(repo, repoNameWithOwner) && ValidMergeMethod(method) {
+			return strings.ToLower(method)
+		}
+	}
+	if ValidMergeMethod(d.MergeMethod) {
+		return strings.ToLower(d.MergeMethod)
+	}
+
+	return ""
 }
 
 // ResolveMergedWindow returns the recently-merged window for a PR section: the

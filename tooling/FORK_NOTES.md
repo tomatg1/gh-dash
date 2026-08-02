@@ -315,6 +315,41 @@ merge-queue icon never triggered from the search alone. The list is now
 entries`, scoped to `mergeQueueRepos` — one extra query per distinct (repo, base
 branch) present, so an `org:` tab doesn't fan out. `data/mergequeue.go`.
 
+### `defaults.mergeMethod` — merge without the per-PR prompts
+
+On a repo **without** a merge queue, `m` runs `gh pr merge`. With no merge-method
+flag, gh is interactive: it asks which strategy, then asks again to submit — for
+every single PR. Passing `--squash` / `--merge` / `--rebase` is exactly what
+turns that off (gh only enters interactive mode when no method flag is given).
+
+GitHub exposes **no per-repo default merge method** — the API only says which
+methods are *allowed* — so there's nothing to auto-detect unless a repo permits
+exactly one. The strategy therefore comes from, in order:
+
+1. `defaults.mergeMethodRepos["owner/name"]` — per-repo override
+2. `defaults.mergeMethod` — global default
+3. the choice **remembered** from the last successful merge of that repo
+4. otherwise `m` asks once — `(s)quash / (m)erge commit / (r)ebase` — and the
+   answer is remembered
+
+```yaml
+defaults:
+  mergeMethod: squash
+  mergeMethodRepos:
+    AutonomousTechnologies/some-repo: rebase
+```
+
+The memory lives in `$XDG_STATE_HOME/gh-dash/prefs.json`, keyed by **repo, not by
+dashboard instance** (`internal/prefs`) — how a repo merges is a property of the
+repo, so every window on the machine agrees. It's written **only after a merge
+succeeds**, so a strategy the repo forbids is never learned. Contrast
+`layoutstate.go`, whose keys are per-instance because layout/selection are
+per-window.
+
+Once a strategy is resolved the merge runs as a normal background task (no TUI
+suspend, and gh's real error surfaces in the footer) instead of the interactive
+`ExecProcess` path — which remains for the notifications PR-preview merge.
+
 ### `defaults.showMergedFor` — keep recently-merged PRs visible
 
 A PR filtered by `is:open` vanishes the instant it merges (e.g. through the
@@ -448,6 +483,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.15` | refresh no longer flashes the PR-list cursor to the top before restoring the selection (place the cursor in `FetchAllSections`) |
 | `v4.25.0-local.16` | same refresh smoothing for the issues + notifications lists (issues also no longer blanks mid-refresh) |
 | `v4.25.0-local.17` | show merge-queue state in the list (enrich from `mergeQueue.entries`, since search omits it) + `defaults.showMergedFor` to keep recently-merged PRs |
+| `v4.25.0-local.18` | `defaults.mergeMethod` (+ per-repo overrides, + remembered-per-repo answer) so `m` merges without gh's per-PR method/submit prompts |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.

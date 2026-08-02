@@ -25,6 +25,7 @@ import (
 	"github.com/dlvhdr/gh-dash/v4/internal/config"
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
 	"github.com/dlvhdr/gh-dash/v4/internal/git"
+	"github.com/dlvhdr/gh-dash/v4/internal/prefs"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branch"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/branchsidebar"
@@ -1437,14 +1438,37 @@ func (m *Model) mergeAction(row data.RowData) string {
 	if !ok || prd.Primary == nil {
 		return "merge"
 	}
-	if !m.ctx.Config.Defaults.UsesMergeQueue(prd.GetRepoNameWithOwner()) {
-		return "merge"
-	}
-	if prd.Primary.IsInMergeQueue {
-		return "dequeue"
+	repo := prd.GetRepoNameWithOwner()
+	if m.ctx.Config.Defaults.UsesMergeQueue(repo) {
+		if prd.Primary.IsInMergeQueue {
+			return "dequeue"
+		}
+
+		return "enqueue"
 	}
 
-	return "enqueue"
+	// No merge queue: merge with an explicit strategy so gh doesn't prompt for
+	// the method and then again to submit. Ask only when we have no answer yet.
+	if method := resolveMergeMethod(m.ctx.Config.Defaults, repo); method != "" {
+		return "merge_" + method
+	}
+
+	return "merge_method"
+}
+
+// resolveMergeMethod picks the merge strategy for a repo: what the config says
+// (per-repo override, else the global default), else the choice remembered from
+// the last successful merge of that repo. "" means "ask".
+//
+// GitHub exposes no per-repo default merge method -- only which methods are
+// allowed -- so there is nothing to auto-detect unless a repo permits exactly
+// one strategy. Configure it, or answer once and it's remembered machine-wide.
+func resolveMergeMethod(d config.Defaults, repoNameWithOwner string) string {
+	if method := d.ResolveMergeMethod(repoNameWithOwner); method != "" {
+		return method
+	}
+
+	return prefs.LoadMergeMethod(repoNameWithOwner)
 }
 
 func (m *Model) getBaseContentHeight() int {
