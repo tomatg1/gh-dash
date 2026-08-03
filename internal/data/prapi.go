@@ -88,13 +88,17 @@ type PullRequestData struct {
 	HeadRef struct {
 		Name string
 	}
-	Repository       Repository
-	Assignees        Assignees            `graphql:"assignees(first: 3)"`
-	Comments         Comments             `graphql:"comments"`
-	ReviewThreads    ReviewThreads        `graphql:"reviewThreads"`
-	Reviews          ReviewsNumber        `graphql:"reviews"`
-	ReviewRequests   ReviewRequestsNumber `graphql:"reviewRequests"`
-	IsDraft          bool
+	Repository     Repository
+	Assignees      Assignees            `graphql:"assignees(first: 3)"`
+	Comments       Comments             `graphql:"comments"`
+	ReviewThreads  ReviewThreads        `graphql:"reviewThreads"`
+	Reviews        ReviewsNumber        `graphql:"reviews"`
+	ReviewRequests ReviewRequestsNumber `graphql:"reviewRequests"`
+	IsDraft        bool
+	// MergedAt is nil for anything not merged. Recently-merged PRs are ordered by
+	// it, because search returns them in the filter's sort order (usually created),
+	// which is not the order they merged in.
+	MergedAt         *time.Time
 	IsInMergeQueue   bool
 	Commits          LastCommitStatus `graphql:"commits(last: 1)"`
 	Labels           PRLabels         `graphql:"labels(first: 6)"`

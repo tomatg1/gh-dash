@@ -2,6 +2,7 @@ package data
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -94,6 +95,23 @@ func EnrichMergeQueueStatus(d config.Defaults, prs []PullRequestData) {
 			prs[i].IsInMergeQueue = true
 		}
 	}
+}
+
+// SortByMergedAtDesc orders PRs most-recently-merged first.
+//
+// Search returns results in the filter's own sort order (typically
+// `sort:created-desc`), which is NOT merge order — a PR opened days ago and merged
+// a minute ago sorts below one opened today and merged yesterday. Anything without
+// a merge timestamp sorts last, so a stray non-merged row can't head the list.
+func SortByMergedAtDesc(prs []PullRequestData) {
+	sort.SliceStable(prs, func(i, j int) bool {
+		a, b := prs[i].MergedAt, prs[j].MergedAt
+		if a == nil || b == nil {
+			return a != nil // non-nil before nil; equal-nil keeps existing order
+		}
+
+		return a.After(*b)
+	})
 }
 
 // MergedSinceQuery derives a "recently merged" search filter from a section's

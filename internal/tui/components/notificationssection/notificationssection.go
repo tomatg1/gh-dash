@@ -230,6 +230,16 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		}
 
 		if m.IsPromptConfirmationFocused() {
+			// y/N confirmations resolve on one keystroke — including a repeat of
+			// the key that opened them. Text-entry prompts fall through to the
+			// input and still need Enter.
+			switch m.DecideConfirmKey(msg.String()) {
+			case section.ConfirmAccept:
+				return m, m.closePrompt(m.runConfirmedAction(m.GetPromptConfirmationAction()))
+			case section.ConfirmCancel:
+				return m, m.closePrompt(nil)
+			}
+
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				m.PromptConfirmationBox.Reset()
@@ -1123,4 +1133,24 @@ func countNewIssueComments(issue data.IssueData, lastReadAt *time.Time) int {
 	}
 
 	return count
+}
+
+// closePrompt dismisses the confirmation prompt, batching whatever the answer
+// kicked off with the blink command.
+func (m *Model) closePrompt(cmd tea.Cmd) tea.Cmd {
+	m.PromptConfirmationBox.Reset()
+
+	return tea.Batch(cmd, m.SetIsPromptConfirmationShown(false))
+}
+
+// runConfirmedAction performs the action the prompt was confirming.
+func (m *Model) runConfirmedAction(action string) tea.Cmd {
+	switch action {
+	case "done":
+		return m.markAsDone()
+	case "done_all":
+		return m.markAllAsDone()
+	}
+
+	return nil
 }

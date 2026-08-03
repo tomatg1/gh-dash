@@ -44,6 +44,9 @@ type BaseModel struct {
 	PromptConfirmationBox     prompt.Model
 	IsPromptConfirmationShown bool
 	PromptConfirmationAction  string
+	// PromptConfirmationKey is the key that opened the prompt; pressing it again
+	// confirms (see DecideConfirmKey).
+	PromptConfirmationKey     string
 	LastFetchTaskId           string
 	IsSearchSupported         bool
 	ShowAuthorIcon            bool
@@ -225,6 +228,7 @@ type PromptConfirmation interface {
 	SetIsPromptConfirmationShown(val bool) tea.Cmd
 	IsPromptConfirmationFocused() bool
 	SetPromptConfirmationAction(action string)
+	SetPromptConfirmationKey(key string)
 	GetPromptConfirmationAction() string
 	GetPromptConfirmation() string
 }
@@ -424,6 +428,56 @@ func (m *BaseModel) SetIsPromptConfirmationShown(val bool) tea.Cmd {
 
 	m.PromptConfirmationBox.Blur()
 	return nil
+}
+
+// ConfirmDecision is what a keypress means while a confirmation prompt is open.
+type ConfirmDecision int
+
+const (
+	// ConfirmPassthrough leaves the key to the text input (typing a branch name,
+	// a PR title, or the merge-method letter).
+	ConfirmPassthrough ConfirmDecision = iota
+	ConfirmAccept
+	ConfirmCancel
+)
+
+// TextEntryPromptActions collect typed input rather than a yes/no answer, so they
+// keep requiring Enter — a single keystroke there is a character, not an answer.
+var TextEntryPromptActions = map[string]bool{
+	"new":          true, // branch name
+	"create_pr":    true, // PR title
+	"merge_method": true, // (s)quash / (m)erge / (r)ebase picker
+}
+
+// DecideConfirmKey maps a keypress to an answer for a yes/no confirmation, so
+// those prompts resolve on a single keystroke instead of needing Enter.
+//
+// Repeating the key that opened the prompt also accepts it: `m` to merge, `m`
+// again to go through with it. That is why the opening key is recorded — the
+// bindings are user-rebindable, so it can't be derived from the action name.
+func (m *BaseModel) DecideConfirmKey(key string) ConfirmDecision {
+	if TextEntryPromptActions[m.PromptConfirmationAction] {
+		return ConfirmPassthrough
+	}
+
+	switch key {
+	case "y", "Y":
+		return ConfirmAccept
+	case "n", "N", "esc", "ctrl+c":
+		return ConfirmCancel
+	}
+
+	if m.PromptConfirmationKey != "" && key == m.PromptConfirmationKey {
+		return ConfirmAccept
+	}
+
+	return ConfirmPassthrough
+}
+
+// SetPromptConfirmationKey records the key that opened the prompt so pressing it
+// again confirms.
+func (m *BaseModel) SetPromptConfirmationKey(key string) {
+	m.PromptConfirmationKey = key
 }
 
 func (m *BaseModel) SetPromptConfirmationAction(action string) {
