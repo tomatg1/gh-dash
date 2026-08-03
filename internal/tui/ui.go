@@ -1536,17 +1536,15 @@ func (m *Model) syncMainContentDimensions() {
 		// and BorderTop adds an extra row outside of that.
 		availableHeight := m.getBaseContentHeight() - m.ctx.Styles.Sidebar.BorderWidth
 
-		// Reserve the list's minimum height: whether the height comes from a
-		// dragged override or the configured default, a preview taller than this
-		// starves the list below what it can render and clips the footer.
-		maxPreview := maxPreviewHeight(availableHeight)
-
+		// Keep the preview between both floors: tall enough to render itself
+		// (short-changing it pushes the status bar off the bottom) and short
+		// enough to leave the list its minimum. Applies to a dragged override
+		// and the configured default alike — a height remembered from a taller
+		// terminal, or a percentage that lands too small here, must not break
+		// either end.
 		previewHeight := 0
 		if m.previewHeightOverride > 0 {
-			// The user dragged the divider (this run, or in a previous one).
-			// Clamp: a remembered height from a taller terminal must not swallow
-			// the whole list.
-			previewHeight = clampSel(m.previewHeightOverride, 1, maxPreview)
+			previewHeight = m.previewHeightOverride
 		} else {
 			h := m.ctx.Config.Defaults.Preview.Height
 			if h > 0 && h < 1 {
@@ -1555,7 +1553,7 @@ func (m *Model) syncMainContentDimensions() {
 			previewHeight = int(h)
 		}
 
-		m.ctx.DynamicPreviewHeight = min(previewHeight, maxPreview)
+		m.ctx.DynamicPreviewHeight = clampPreviewHeight(previewHeight, availableHeight)
 		m.ctx.MainContentHeight = availableHeight - m.ctx.DynamicPreviewHeight
 		m.ctx.DynamicPreviewWidth = m.ctx.ScreenWidth
 	} else {

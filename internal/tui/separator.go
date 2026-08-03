@@ -38,12 +38,30 @@ func maxPreviewHeight(available int) int {
 	return 1
 }
 
+// clampPreviewHeight keeps the preview between what it can actually render and
+// what still leaves the list its minimum. Both ends matter: too tall starves the
+// list, too short and the preview renders its own floor anyway and pushes the
+// status bar off the screen.
+//
+// On a terminal too short to honour both, the list's floor wins and the preview
+// takes what's left -- the list is the surface being navigated, and a divider
+// that can still be grabbed is worth more than a full-size preview.
+func clampPreviewHeight(h, available int) int {
+	hi := maxPreviewHeight(available)
+	lo := common.MinPreviewHeight
+	if lo > hi {
+		lo = hi
+	}
+
+	return clampSel(h, lo, hi)
+}
+
 // previewHeightForSeparatorY converts a divider screen row into a preview
-// height, always leaving the list its minimum height and at least one row of
-// preview -- a zero-height pane is unrecoverable with the mouse, since its
-// divider would then be unreachable.
+// height, always leaving the list its minimum height and the preview its own --
+// a collapsed pane is unrecoverable with the mouse, since its divider would then
+// be unreachable.
 func previewHeightForSeparatorY(y, available int) int {
-	return clampSel(available-(y-common.TabsHeight), 1, maxPreviewHeight(available))
+	return clampPreviewHeight(available-(y-common.TabsHeight), available)
 }
 
 // setPreviewHeightFromSeparatorY drags the divider to screen row y.

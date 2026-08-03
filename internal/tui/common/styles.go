@@ -18,7 +18,14 @@ var (
 	// (and the "? help" toggle) off the bottom of the screen. The layout must
 	// never size the list below this floor. (Measured against the styled render;
 	// see TestFooter_StaysVisibleWithHighSeparatorAndHelp.)
-	MinListHeight      = SearchHeight + TableHeaderHeight + 2
+	MinListHeight = SearchHeight + TableHeaderHeight + 2
+	// MinPreviewHeight is the fewest content rows the bottom preview can render:
+	// one row of viewport plus its percentage pager. Budgeting it less does not
+	// shrink it -- it renders its floor anyway and the surplus pushes the status
+	// bar off the bottom, the same failure MinListHeight prevents at the other
+	// end of the divider's travel. Dragging the divider down therefore stops
+	// here, just above the status bar, rather than collapsing the preview.
+	MinPreviewHeight   = 2
 	FooterHeight       = 1
 	ExpandedHelpHeight = 17
 	InputBoxHeight     = 8
