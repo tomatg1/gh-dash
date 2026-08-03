@@ -228,14 +228,19 @@ variable is positional, and `activate` reorders the windows, so a later
 just on). And set the index **after** `activate`, not before — before
 `make new tab` it won't stick.
 
-**The divider stops at both floors.** Each pane has a minimum it can actually
-render — the list its search box + table header + a row (`MinListHeight`), the
-preview its viewport + pager (`MinPreviewHeight`). Budgeting either below its floor
-does not shrink it; it renders the floor anyway and the surplus pushes the status
-bar off the bottom of the alt-screen. So the drag clamps at *both* ends
-(`clampPreviewHeight`): all the way up leaves the list its minimum, all the way
-down stops just above the status bar rather than collapsing the preview — which
-also keeps the divider grabbable so it can be dragged back.
+**The divider stops at both floors.** The invariant is that a pane must never
+render more rows than it is budgeted — any overshoot pushes the status bar off the
+bottom of the alt-screen. The list can't render below its search box + table header
++ a row (`MinListHeight`), so the preview is capped to preserve that. Downward the
+preview collapses all the way to **zero content**: at one row it drops its scroll
+pager, and at zero it renders only its top border — the divider line itself, drawn
+directly, because rendering empty content through the bordered style still emits a
+blank row. So dragging down hides the preview's title and pager and stops exactly
+one row above the status bar, with the divider still on-screen to drag back.
+
+A collapsed preview is a *remembered* state, so `loadPreviewHeight` returns
+`(height, ok)`: 0 means "dragged to the bottom", absent means "use the config".
+Treating 0 as "unset" silently restored the configured percentage instead.
 
 **Only raise when needed.** If the target is already Chrome's front (most-
 recently-active) window, skip `activate`/`set index` entirely — `activate` is
@@ -524,6 +529,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.18` | `defaults.mergeMethod` (+ per-repo overrides, + remembered-per-repo answer) so `m` merges without gh's per-PR method/submit prompts |
 | `v4.25.0-local.19` | merged PRs ordered newest-merge-first; `M` toggles them (instance-persistent); y/N confirmations take one keystroke, and repeating the opening key confirms |
 | `v4.25.0-local.20` | dragging the divider to the bottom stops above the status bar instead of hiding it (the preview has a minimum renderable height too) |
+| `v4.25.0-local.21` | the divider goes one further: the preview collapses to just its divider line (title + pager hidden), still stopping above the status bar |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.

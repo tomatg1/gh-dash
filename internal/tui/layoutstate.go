@@ -179,17 +179,20 @@ func saveSelection(instanceKey, section, url string) error {
 	return writeLayoutState(st)
 }
 
-// loadPreviewHeight returns the remembered preview height for key, or 0 for
-// "nothing remembered, use the config".
-func loadPreviewHeight(key string) int {
-	return readLayoutState().PreviewHeight[key]
+// loadPreviewHeight returns the remembered preview height for key. The bool
+// distinguishes a remembered 0 -- a divider deliberately dragged to the bottom,
+// collapsing the preview -- from nothing remembered, where the config wins.
+func loadPreviewHeight(key string) (int, bool) {
+	h, ok := readLayoutState().PreviewHeight[key]
+
+	return h, ok
 }
 
 // savePreviewHeight persists h under key, merging into whatever other instances
 // have stored. Written to a temp file and renamed, so a crash mid-write can
 // never leave a half-parsed layout behind.
 func savePreviewHeight(key string, h int) error {
-	if layoutStateDir() == "" || h <= 0 {
+	if layoutStateDir() == "" || h < 0 {
 		return nil
 	}
 

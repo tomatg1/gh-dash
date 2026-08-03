@@ -79,9 +79,12 @@ type Model struct {
 	lastClickAt  time.Time
 	// Draggable preview divider (see separator.go, layoutstate.go).
 	resizingSeparator bool
-	// previewHeightOverride is 0 when the configured default should win.
-	previewHeightOverride int
-	layoutStateKey        string
+	// previewHeightOverride is the dragged divider position. 0 is a legitimate
+	// value (a collapsed preview), so previewHeightOverrideSet -- not a zero
+	// check -- decides whether it beats the configured default.
+	previewHeightOverride    int
+	previewHeightOverrideSet bool
+	layoutStateKey           string
 	// frameBuf holds the last frame View rendered, so a drag-release can read
 	// the text under the selection. View has a value receiver and cannot write
 	// to the model, hence the pointer.
@@ -107,7 +110,7 @@ func NewModel(location config.Location, repos Repositories) Model {
 
 	// Restore where this dashboard's divider was last left.
 	m.layoutStateKey = layoutKey(location.ConfigFlag, location.RepoPath)
-	m.previewHeightOverride = loadPreviewHeight(m.layoutStateKey)
+	m.previewHeightOverride, m.previewHeightOverrideSet = loadPreviewHeight(m.layoutStateKey)
 
 	// Prefer the ldflags-injected Version; fall back to module build info, then
 	// to "dev". A local `go build` has no module version, so the fork's build
@@ -1543,7 +1546,7 @@ func (m *Model) syncMainContentDimensions() {
 		// terminal, or a percentage that lands too small here, must not break
 		// either end.
 		previewHeight := 0
-		if m.previewHeightOverride > 0 {
+		if m.previewHeightOverrideSet {
 			previewHeight = m.previewHeightOverride
 		} else {
 			h := m.ctx.Config.Defaults.Preview.Height

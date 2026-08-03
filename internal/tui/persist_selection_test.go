@@ -35,6 +35,8 @@ func TestState_LayoutAndSelectionCoexist(t *testing.T) {
 	require.NoError(t, savePreviewHeight("dir:/work", 15))
 	require.NoError(t, saveSelection("dir:/work", "All", "u1"))
 
-	require.Equal(t, 15, loadPreviewHeight("dir:/work"), "saving selection must not drop the layout")
+	gotH, okH := loadPreviewHeight("dir:/work")
+	require.True(t, okH, "saving selection must not drop the layout")
+	require.Equal(t, 15, gotH)
 	require.Equal(t, "u1", loadSelection("dir:/work", "All"))
 }

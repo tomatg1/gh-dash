@@ -30,7 +30,9 @@ func TestMergedHidden_CoexistsWithLayoutState(t *testing.T) {
 	require.NoError(t, saveSelection("instance:a", "Mine", "https://github.com/o/r/pull/1"))
 	require.NoError(t, saveMergedHidden("instance:a", true))
 
-	require.Equal(t, 14, loadPreviewHeight("instance:a"))
+	gotH, okH := loadPreviewHeight("instance:a")
+	require.True(t, okH)
+	require.Equal(t, 14, gotH)
 	require.Equal(t, "https://github.com/o/r/pull/1", loadSelection("instance:a", "Mine"))
 	require.True(t, loadMergedHidden("instance:a"))
 }

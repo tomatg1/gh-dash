@@ -72,6 +72,7 @@ func (m *Model) setPreviewHeightFromSeparatorY(y int) {
 	}
 
 	m.previewHeightOverride = previewHeightForSeparatorY(y, available)
+	m.previewHeightOverrideSet = true
 
 	m.syncMainContentDimensions()
 	m.syncProgramContext()
