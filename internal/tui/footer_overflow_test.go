@@ -73,11 +73,9 @@ func TestFooter_StaysVisibleWithHighSeparatorAndHelp(t *testing.T) {
 	require.True(t, ok, "help open: the status bar must stay visible")
 }
 
-// The other end of the divider's travel: dragged to the bottom of the screen it
-// must stop just above the status bar, not on top of it. The preview has its own
-// minimum renderable height (viewport + pager), so budgeting it less doesn't
-// shrink it — it renders the floor anyway and the surplus pushes the status bar
-// off the screen, mirroring the list-floor bug at the top of the travel.
+// The other end of the divider's travel: dragged to the bottom it collapses the
+// preview to just the divider line — no title, no scroll pager — and stops
+// immediately above the status bar rather than covering it.
 func TestFooter_StaysVisibleWithSeparatorDraggedToBottom(t *testing.T) {
 	zone.NewGlobal()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -92,16 +90,42 @@ func TestFooter_StaysVisibleWithSeparatorDraggedToBottom(t *testing.T) {
 	m.setPreviewHeightFromSeparatorY(screen + 20)
 	m.syncProgramContext()
 
-	require.GreaterOrEqual(t, m.ctx.DynamicPreviewHeight, common.MinPreviewHeight,
-		"the preview keeps its minimum renderable height instead of collapsing")
+	require.Equal(t, 0, m.ctx.DynamicPreviewHeight,
+		"the preview collapses fully, leaving only its divider line")
 
 	h, ok := statusBarVisible(t, m)
 	require.LessOrEqual(t, h, screen, "frame must fit the screen")
 	require.True(t, ok, "the status bar must stay visible")
 
-	// The divider must still be grabbable: it sits on-screen, above the status bar.
+	// Collapsed means collapsed: the pane's own chrome is gone too.
+	require.Equal(t, 1, lipgloss.Height(m.sidebar.View()),
+		"a collapsed preview renders exactly the divider row")
+	require.NotContains(t, m.sidebar.View(), "%",
+		"the scroll pager is hidden when there is no row for it")
+
+	// The divider must still be grabbable, one row above the status bar.
 	sep, hasSep := m.separatorY()
 	require.True(t, hasSep)
-	require.Less(t, sep, screen-common.FooterHeight,
-		"the divider stops above the status bar, so it can be dragged back up")
+	require.Equal(t, screen-common.FooterHeight-1, sep,
+		"the divider stops directly above the status bar, so it can be dragged back up")
+}
+
+// The invariant behind both ends of the travel: the preview must never render
+// more rows than it is budgeted (plus its one border row). Any overshoot is what
+// pushes the status bar off the bottom of the alt-screen.
+func TestPreview_NeverRendersMoreThanBudgeted(t *testing.T) {
+	zone.NewGlobal()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	m := bottomPreviewModel(t)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 125, Height: 52})
+	m = upd.(Model)
+	m.sidebar.SetContent(strings.Repeat("preview line\n", 200))
+
+	for _, budget := range []int{0, 1, 2, 3, 4, 8} {
+		m.ctx.DynamicPreviewHeight = budget
+		m.syncProgramContext()
+		require.Equal(t, budget+1, lipgloss.Height(m.sidebar.View()),
+			"preview budgeted %d rows must render exactly that plus its border", budget)
+	}
 }

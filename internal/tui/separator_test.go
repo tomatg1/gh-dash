@@ -169,7 +169,9 @@ func TestSeparator_ReleasePersistsTheHeight(t *testing.T) {
 	m = updated.(Model)
 
 	require.False(t, m.resizingSeparator, "release ends the resize")
-	require.Equal(t, m.previewHeightOverride, loadPreviewHeight(m.layoutStateKey),
+	savedH, savedOK := loadPreviewHeight(m.layoutStateKey)
+	require.True(t, savedOK, "the drag should be recorded in the state file")
+	require.Equal(t, m.previewHeightOverride, savedH,
 		"the dragged height should survive into the state file")
 
 	_, err := os.Stat(filepath.Join(dir, "gh-dash", "layout.json"))
@@ -202,16 +204,30 @@ func TestLayoutState_RoundTripsAndMergesKeys(t *testing.T) {
 	require.NoError(t, savePreviewHeight("a", 12))
 	require.NoError(t, savePreviewHeight("b", 7))
 
-	require.Equal(t, 12, loadPreviewHeight("a"), "saving b must not clobber a")
-	require.Equal(t, 7, loadPreviewHeight("b"))
-	require.Equal(t, 0, loadPreviewHeight("never-seen"))
+	a, aOK := loadPreviewHeight("a")
+	require.True(t, aOK)
+	require.Equal(t, 12, a, "saving b must not clobber a")
+	b, bOK := loadPreviewHeight("b")
+	require.True(t, bOK)
+	require.Equal(t, 7, b)
+	_, unseenOK := loadPreviewHeight("never-seen")
+	require.False(t, unseenOK, "an unknown instance has nothing remembered")
 }
 
-func TestLayoutState_NonPositiveHeightIsNotPersisted(t *testing.T) {
+// Zero is a legitimate remembered height now — the divider dragged to the very
+// bottom collapses the preview — so it must round-trip as "remembered", while a
+// negative height stays unpersistable.
+func TestLayoutState_ZeroHeightIsRemembered(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	require.NoError(t, savePreviewHeight("a", 0))
-	require.Equal(t, 0, loadPreviewHeight("a"))
+	h, ok := loadPreviewHeight("a")
+	require.True(t, ok, "a collapsed preview is a remembered state, not an absent one")
+	require.Equal(t, 0, h)
+
+	require.NoError(t, savePreviewHeight("b", -1))
+	_, negOK := loadPreviewHeight("b")
+	require.False(t, negOK)
 }
 
 // A corrupt state file must not take the dashboard down with it.
@@ -222,9 +238,12 @@ func TestLayoutState_CorruptFileFallsBackToDefaults(t *testing.T) {
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "gh-dash", "layout.json"), []byte("{not json"), 0o644))
 
-	require.Equal(t, 0, loadPreviewHeight("a"), "corrupt state reads as 'nothing remembered'")
+	_, corruptOK := loadPreviewHeight("a")
+	require.False(t, corruptOK, "corrupt state reads as 'nothing remembered'")
 	require.NoError(t, savePreviewHeight("a", 9), "and can be overwritten")
-	require.Equal(t, 9, loadPreviewHeight("a"))
+	recovered, recoveredOK := loadPreviewHeight("a")
+	require.True(t, recoveredOK)
+	require.Equal(t, 9, recovered)
 }
 
 // A height remembered from a taller terminal must not swallow the whole list.
