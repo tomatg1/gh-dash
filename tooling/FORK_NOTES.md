@@ -369,6 +369,35 @@ prSections:
 Fetched only on the first page (not while paginating). `MergedSinceQuery` in
 `data/mergequeue.go`; wired in the PR section's fetch.
 
+**Ordered newest-merge-first.** Search returns results in the *filter's* sort order
+— with `sort:created-desc` in the filter, a PR opened days ago and merged a minute
+ago comes back below one opened today and merged yesterday (gh-dash's own appended
+`sort:updated` loses to the filter's token). The merged block is therefore sorted
+explicitly by `mergedAt` descending (`SortByMergedAtDesc`), which needed `mergedAt`
+added to `PullRequestData`. Merged PRs still sit *after* the open ones.
+
+**`M` toggles them.** Instance-persistent (`layout.json`, keyed like the divider
+and selection — one window hiding them doesn't affect another). Hiding drops them
+from the loaded rows immediately and **skips the extra search** on subsequent
+fetches; showing triggers a refetch, since while hidden the query never ran. The
+filtering happens on the section's data, not in `BuildRows`, because the table
+cursor indexes `Prs` directly — hiding at render time would leave the cursor
+pointing at a different PR than the highlighted one.
+
+### Confirmations take one keystroke
+
+`(y/N)` prompts resolve on a single key — no Enter. `y`/`Y` accepts, `n`/`N`/`esc`
+cancels, and **repeating the key that opened the prompt accepts**: press `m` to
+merge, `m` again to go through with it. That works for any action because the
+opening key is recorded when the prompt opens (`SetPromptConfirmationKey`) rather
+than derived from the action name — the bindings are user-rebindable.
+
+Applies to the PR, issue, notification, and branch sections plus the notifications
+sidebar. Typed-then-Enter still works, and an empty Enter cancels (the prompt says
+`(y/N)`). **Text-entry prompts are excluded** — a branch name, a PR title, and the
+merge-method picker (`TextEntryPromptActions`), where a keystroke is a character,
+not an answer. The picker resolves on its own single letter (`s`/`m`/`r`) instead.
+
 ## Instances
 
 An **instance** scopes persisted state (layout height + selection). Identity:
@@ -484,6 +513,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.16` | same refresh smoothing for the issues + notifications lists (issues also no longer blanks mid-refresh) |
 | `v4.25.0-local.17` | show merge-queue state in the list (enrich from `mergeQueue.entries`, since search omits it) + `defaults.showMergedFor` to keep recently-merged PRs |
 | `v4.25.0-local.18` | `defaults.mergeMethod` (+ per-repo overrides, + remembered-per-repo answer) so `m` merges without gh's per-PR method/submit prompts |
+| `v4.25.0-local.19` | merged PRs ordered newest-merge-first; `M` toggles them (instance-persistent); y/N confirmations take one keystroke, and repeating the opening key confirms |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.

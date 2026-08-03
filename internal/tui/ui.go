@@ -125,6 +125,9 @@ func NewModel(location config.Location, repos Repositories) Model {
 		ConfigFlag: location.ConfigFlag,
 		RepoPath:   location.RepoPath,
 		Version:    version,
+		// Restored before the first fetch, so a dashboard left with merged PRs
+		// hidden doesn't pay for the recently-merged query on startup.
+		HideMergedPRs: loadMergedHidden(m.layoutStateKey),
 		StartTask: func(task context.Task) tea.Cmd {
 			log.Info("Starting task", "id", task.Id)
 			task.StartTime = time.Now()
@@ -460,39 +463,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.PRKeys.Close):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "close")
+					cmd = m.promptConfirmation(currSection, "close", msg.String())
 				}
 				return m, cmd
 
 			case key.Matches(msg, keys.PRKeys.Ready):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "ready")
+					cmd = m.promptConfirmation(currSection, "ready", msg.String())
 				}
 				return m, cmd
 
 			case key.Matches(msg, keys.PRKeys.Reopen):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "reopen")
+					cmd = m.promptConfirmation(currSection, "reopen", msg.String())
 				}
 				return m, cmd
 
 			case key.Matches(msg, keys.PRKeys.Merge):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, m.mergeAction(currRowData))
+					cmd = m.promptConfirmation(currSection, m.mergeAction(currRowData), msg.String())
 				}
 				return m, cmd
 
 			case key.Matches(msg, keys.PRKeys.Update):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "update")
+					cmd = m.promptConfirmation(currSection, "update", msg.String())
 				}
 				return m, cmd
 
 			case key.Matches(msg, keys.PRKeys.ApproveWorkflows):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "approveWorkflows")
+					cmd = m.promptConfirmation(currSection, "approveWorkflows", msg.String())
 				}
 				return m, cmd
+
+			case key.Matches(msg, keys.PRKeys.ToggleMerged):
+				return m, m.toggleMergedVisibility()
 
 			case key.Matches(msg, keys.PRKeys.ViewIssues):
 				cmds = append(cmds, m.switchSelectedView())
@@ -528,13 +534,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.IssueKeys.Close):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "close")
+					cmd = m.promptConfirmation(currSection, "close", msg.String())
 				}
 				return m, cmd
 
 			case key.Matches(msg, keys.IssueKeys.Reopen):
 				if currRowData != nil {
-					cmd = m.promptConfirmation(currSection, "reopen")
+					cmd = m.promptConfirmation(currSection, "reopen", msg.String())
 				}
 				return m, cmd
 
@@ -593,27 +599,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, cmd
 
 						case prview.PRActionClose:
-							cmd = m.promptConfirmationForNotificationPR("close")
+							cmd = m.promptConfirmationForNotificationPR("close", msg.String())
 							return m, cmd
 
 						case prview.PRActionReady:
-							cmd = m.promptConfirmationForNotificationPR("ready")
+							cmd = m.promptConfirmationForNotificationPR("ready", msg.String())
 							return m, cmd
 
 						case prview.PRActionReopen:
-							cmd = m.promptConfirmationForNotificationPR("reopen")
+							cmd = m.promptConfirmationForNotificationPR("reopen", msg.String())
 							return m, cmd
 
 						case prview.PRActionMerge:
-							cmd = m.promptConfirmationForNotificationPR("merge")
+							cmd = m.promptConfirmationForNotificationPR("merge", msg.String())
 							return m, cmd
 
 						case prview.PRActionUpdate:
-							cmd = m.promptConfirmationForNotificationPR("update")
+							cmd = m.promptConfirmationForNotificationPR("update", msg.String())
 							return m, cmd
 
 						case prview.PRActionApproveWorkflows:
-							cmd = m.promptConfirmationForNotificationPR("approveWorkflows")
+							cmd = m.promptConfirmationForNotificationPR("approveWorkflows", msg.String())
 							return m, cmd
 
 						case prview.PRActionSummaryViewMore:
@@ -663,11 +669,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, cmd
 
 					case issueview.IssueActionClose:
-						cmd = m.promptConfirmationForNotificationIssue("close")
+						cmd = m.promptConfirmationForNotificationIssue("close", msg.String())
 						return m, cmd
 
 					case issueview.IssueActionReopen:
-						cmd = m.promptConfirmationForNotificationIssue("reopen")
+						cmd = m.promptConfirmationForNotificationIssue("reopen", msg.String())
 						return m, cmd
 					}
 				}
@@ -688,7 +694,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 
 			case key.Matches(msg, keys.NotificationKeys.MarkAllAsDone):
-				cmd = m.promptConfirmation(currSection, "done_all")
+				cmd = m.promptConfirmation(currSection, "done_all", msg.String())
 				return m, cmd
 
 			case key.Matches(msg, keys.NotificationKeys.Open):
@@ -1456,6 +1462,34 @@ func (m *Model) mergeAction(row data.RowData) string {
 	return "merge_method"
 }
 
+// toggleMergedVisibility flips the `M` toggle and persists it for this instance.
+//
+// Hiding drops merged PRs from the loaded rows immediately (no refetch — the data
+// is already here). Showing needs a fetch, because while hidden the sections skip
+// the recently-merged query entirely.
+func (m *Model) toggleMergedVisibility() tea.Cmd {
+	m.ctx.HideMergedPRs = !m.ctx.HideMergedPRs
+	if err := saveMergedHidden(m.layoutStateKey, m.ctx.HideMergedPRs); err != nil {
+		log.Error("failed persisting merged visibility", "err", err)
+	}
+	m.syncProgramContext()
+
+	if !m.ctx.HideMergedPRs {
+		newSections, fetchCmd := m.fetchAllViewSections()
+		m.setCurrentViewSections(newSections)
+
+		return fetchCmd
+	}
+
+	for _, s := range m.prs {
+		if prSection, ok := s.(*prssection.Model); ok {
+			prSection.DropMergedRows()
+		}
+	}
+
+	return nil
+}
+
 // resolveMergeMethod picks the merge strategy for a repo: what the config says
 // (per-repo override, else the global default), else the choice remembered from
 // the last successful merge of that repo. "" means "ask".
@@ -1562,9 +1596,17 @@ func (m *Model) backToNotification() tea.Cmd {
 	return m.syncSidebar()
 }
 
-func (m *Model) promptConfirmation(currSection section.Section, action string) tea.Cmd {
+// promptConfirmation opens a confirmation prompt for action. openKey is the key
+// that triggered it, recorded so pressing that same key again confirms (press `m`
+// to merge, `m` again to go through with it); pass "" when there is no such key.
+func (m *Model) promptConfirmation(
+	currSection section.Section,
+	action string,
+	openKey string,
+) tea.Cmd {
 	if currSection != nil {
 		currSection.SetPromptConfirmationAction(action)
+		currSection.SetPromptConfirmationKey(openKey)
 		return currSection.SetIsPromptConfirmationShown(true)
 	}
 	return nil
@@ -2197,8 +2239,9 @@ func (m *Model) doUpdateFooterAtInterval() tea.Cmd {
 // promptConfirmationForNotificationPR shows a confirmation prompt for PR actions
 // when viewing a PR from a notification. This is separate from section-based
 // confirmation because the notification section doesn't know about PR actions.
-func (m *Model) promptConfirmationForNotificationPR(action string) tea.Cmd {
+func (m *Model) promptConfirmationForNotificationPR(action, openKey string) tea.Cmd {
 	prompt := m.notificationView.SetPendingPRAction(action)
+	m.notificationView.SetPendingKey(openKey)
 	if prompt == "" {
 		return nil
 	}
@@ -2208,8 +2251,9 @@ func (m *Model) promptConfirmationForNotificationPR(action string) tea.Cmd {
 
 // promptConfirmationForNotificationIssue shows a confirmation prompt for Issue actions
 // when viewing an Issue from a notification.
-func (m *Model) promptConfirmationForNotificationIssue(action string) tea.Cmd {
+func (m *Model) promptConfirmationForNotificationIssue(action, openKey string) tea.Cmd {
 	prompt := m.notificationView.SetPendingIssueAction(action)
+	m.notificationView.SetPendingKey(openKey)
 	if prompt == "" {
 		return nil
 	}

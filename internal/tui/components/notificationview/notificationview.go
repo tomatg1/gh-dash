@@ -26,6 +26,9 @@ type Model struct {
 
 	// Pending confirmation action for PR/Issue (e.g., "pr_close", "issue_reopen")
 	pendingAction string
+	// pendingKey is the key that opened the confirmation; pressing it again
+	// confirms, mirroring the section prompts.
+	pendingKey string
 }
 
 func NewModel(ctx *context.ProgramContext) Model {
@@ -136,6 +139,12 @@ func (m *Model) ClearPendingAction() {
 	m.pendingAction = ""
 }
 
+// SetPendingKey records the key that opened the pending confirmation so pressing
+// it again confirms. Empty clears it.
+func (m *Model) SetPendingKey(key string) {
+	m.pendingKey = key
+}
+
 // Update handles key messages for confirmation dialogs.
 // Returns the confirmed action string (empty if not confirmed or cancelled).
 func (m Model) Update(msg tea.Msg) (Model, string) {
@@ -145,13 +154,18 @@ func (m Model) Update(msg tea.Msg) (Model, string) {
 
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		if msg.String() == "y" || msg.String() == "Y" {
+		pressed := msg.String()
+		// Repeating the key that opened the prompt confirms it, the same as `y`
+		// (press `m` to merge, `m` again to go through with it).
+		if pressed == "y" || pressed == "Y" || (m.pendingKey != "" && pressed == m.pendingKey) {
 			action := m.pendingAction
 			m.pendingAction = ""
+			m.pendingKey = ""
 			return m, action
 		}
 		// Any other key cancels the confirmation
 		m.pendingAction = ""
+		m.pendingKey = ""
 	}
 
 	return m, ""

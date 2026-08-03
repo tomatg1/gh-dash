@@ -173,6 +173,11 @@ func (t *TestSection) SetPromptConfirmationAction(action string) {
 	panic("unimplemented")
 }
 
+// SetPromptConfirmationKey implements section.Section.
+func (t *TestSection) SetPromptConfirmationKey(key string) {
+	panic("unimplemented")
+}
+
 // Update implements section.Section.
 func (t *TestSection) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 	panic("unimplemented")

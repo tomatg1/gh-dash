@@ -171,7 +171,7 @@ func TestGetCurrentViewSections_RepoViewWithNilRepo(t *testing.T) {
 func TestPromptConfirmation_NilSection(t *testing.T) {
 	// promptConfirmation should return nil when currSection is nil
 	m := Model{}
-	cmd := m.promptConfirmation(nil, "close")
+	cmd := m.promptConfirmation(nil, "close", "x")
 	require.Nil(t, cmd, "promptConfirmation should return nil when section is nil")
 }
 
@@ -1368,7 +1368,7 @@ func TestPromptConfirmationForNotificationPR(t *testing.T) {
 	}, "test-notification-id")
 
 	// Call promptConfirmationForNotificationPR
-	m.promptConfirmationForNotificationPR("close")
+	m.promptConfirmationForNotificationPR("close", "m")
 
 	// Verify pending action is set
 	require.Equal(t, "pr_close", m.notificationView.GetPendingAction(),
@@ -1382,7 +1382,7 @@ func TestPromptConfirmationForNotificationPR_NilSubject(t *testing.T) {
 		notificationView: notificationview.NewModel(ctx),
 	}
 
-	cmd := m.promptConfirmationForNotificationPR("close")
+	cmd := m.promptConfirmationForNotificationPR("close", "m")
 
 	require.Nil(t, cmd, "should return nil when no PR subject")
 	require.Empty(
@@ -1418,7 +1418,7 @@ func TestPromptConfirmationForNotificationIssue(t *testing.T) {
 	}, "test-notification-id")
 
 	// Call promptConfirmationForNotificationIssue
-	m.promptConfirmationForNotificationIssue("close")
+	m.promptConfirmationForNotificationIssue("close", "m")
 
 	// Verify pending action is set
 	require.Equal(t, "issue_close", m.notificationView.GetPendingAction(),
@@ -1602,7 +1602,7 @@ func TestPromptConfirmationForNotificationIssue_NilSubject(t *testing.T) {
 		notificationView: notificationview.NewModel(ctx),
 	}
 
-	cmd := m.promptConfirmationForNotificationIssue("close")
+	cmd := m.promptConfirmationForNotificationIssue("close", "m")
 
 	require.Nil(t, cmd, "should return nil when no Issue subject")
 	require.Empty(
@@ -1767,7 +1767,7 @@ func TestPromptConfirmationForNotificationPR_ApproveWorkflows(t *testing.T) {
 	}, "test-notification-id")
 
 	// Call promptConfirmationForNotificationPR with approveWorkflows
-	m.promptConfirmationForNotificationPR("approveWorkflows")
+	m.promptConfirmationForNotificationPR("approveWorkflows", "m")
 
 	// Verify pending action is set
 	require.Equal(t, "pr_approveWorkflows", m.notificationView.GetPendingAction(),

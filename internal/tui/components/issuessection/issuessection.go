@@ -78,6 +78,16 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		}
 
 		if m.IsPromptConfirmationFocused() {
+			// y/N confirmations resolve on one keystroke — including a repeat of
+			// the key that opened them. Text-entry prompts fall through to the
+			// input and still need Enter.
+			switch m.DecideConfirmKey(msg.String()) {
+			case section.ConfirmAccept:
+				return m, m.closePrompt(m.runConfirmedAction(m.GetPromptConfirmationAction()))
+			case section.ConfirmCancel:
+				return m, m.closePrompt(nil)
+			}
+
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				m.PromptConfirmationBox.Reset()
@@ -482,4 +492,30 @@ func (m Model) GetPagerContent() string {
 	}
 	pager := m.Ctx.Styles.ListViewPort.PagerStyle.Render(pagerContent)
 	return pager
+}
+
+// closePrompt dismisses the confirmation prompt, batching whatever the answer
+// kicked off with the blink command.
+func (m *Model) closePrompt(cmd tea.Cmd) tea.Cmd {
+	m.PromptConfirmationBox.Reset()
+
+	return tea.Batch(cmd, m.SetIsPromptConfirmationShown(false))
+}
+
+// runConfirmedAction performs the action the prompt was confirming.
+func (m *Model) runConfirmedAction(action string) tea.Cmd {
+	issue := m.GetCurrRow()
+	if issue == nil {
+		return nil
+	}
+	sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
+
+	switch action {
+	case "close":
+		return tasks.CloseIssue(m.Ctx, sid, issue)
+	case "reopen":
+		return tasks.ReopenIssue(m.Ctx, sid, issue)
+	}
+
+	return nil
 }

@@ -12,6 +12,10 @@ import (
 type layoutState struct {
 	PreviewHeight map[string]int    `json:"previewHeight"`
 	Selection     map[string]string `json:"selection,omitempty"`
+	// MergedHidden records the `M` toggle per instance. It stores the HIDDEN
+	// state rather than the visible one so the zero value (absent key) means
+	// "show merged", which is the default whenever showMergedFor is configured.
+	MergedHidden map[string]bool `json:"mergedHidden,omitempty"`
 }
 
 // layoutStateDir follows the XDG state spec -- state that should persist but
@@ -71,7 +75,30 @@ func emptyLayoutState() layoutState {
 	return layoutState{
 		PreviewHeight: map[string]int{},
 		Selection:     map[string]string{},
+		MergedHidden:  map[string]bool{},
 	}
+}
+
+// loadMergedHidden reports whether this instance last had merged PRs hidden.
+func loadMergedHidden(key string) bool {
+	return readLayoutState().MergedHidden[key]
+}
+
+// saveMergedHidden persists the `M` toggle for this instance. Only the hidden
+// state is stored; showing again deletes the key.
+func saveMergedHidden(key string, hidden bool) error {
+	if layoutStateDir() == "" || key == "" {
+		return nil
+	}
+
+	st := readLayoutState()
+	if hidden {
+		st.MergedHidden[key] = true
+	} else {
+		delete(st.MergedHidden, key)
+	}
+
+	return writeLayoutState(st)
 }
 
 func readLayoutState() layoutState {
@@ -94,6 +121,9 @@ func readLayoutState() layoutState {
 	}
 	if st.Selection == nil {
 		st.Selection = map[string]string{}
+	}
+	if st.MergedHidden == nil {
+		st.MergedHidden = map[string]bool{}
 	}
 
 	return st
