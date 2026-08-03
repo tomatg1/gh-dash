@@ -72,3 +72,36 @@ func TestFooter_StaysVisibleWithHighSeparatorAndHelp(t *testing.T) {
 	require.LessOrEqual(t, h, screen, "help open: frame must fit the screen")
 	require.True(t, ok, "help open: the status bar must stay visible")
 }
+
+// The other end of the divider's travel: dragged to the bottom of the screen it
+// must stop just above the status bar, not on top of it. The preview has its own
+// minimum renderable height (viewport + pager), so budgeting it less doesn't
+// shrink it — it renders the floor anyway and the surplus pushes the status bar
+// off the screen, mirroring the list-floor bug at the top of the travel.
+func TestFooter_StaysVisibleWithSeparatorDraggedToBottom(t *testing.T) {
+	zone.NewGlobal()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	m := bottomPreviewModel(t)
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 125, Height: 52})
+	m = upd.(Model)
+	screen := m.ctx.ScreenHeight
+	m.sidebar.SetContent(strings.Repeat("preview line\n", 200))
+
+	// Drag well past the bottom edge — the clamp, not the pointer, decides.
+	m.setPreviewHeightFromSeparatorY(screen + 20)
+	m.syncProgramContext()
+
+	require.GreaterOrEqual(t, m.ctx.DynamicPreviewHeight, common.MinPreviewHeight,
+		"the preview keeps its minimum renderable height instead of collapsing")
+
+	h, ok := statusBarVisible(t, m)
+	require.LessOrEqual(t, h, screen, "frame must fit the screen")
+	require.True(t, ok, "the status bar must stay visible")
+
+	// The divider must still be grabbable: it sits on-screen, above the status bar.
+	sep, hasSep := m.separatorY()
+	require.True(t, hasSep)
+	require.Less(t, sep, screen-common.FooterHeight,
+		"the divider stops above the status bar, so it can be dragged back up")
+}

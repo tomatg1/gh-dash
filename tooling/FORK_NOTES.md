@@ -228,6 +228,15 @@ variable is positional, and `activate` reorders the windows, so a later
 just on). And set the index **after** `activate`, not before — before
 `make new tab` it won't stick.
 
+**The divider stops at both floors.** Each pane has a minimum it can actually
+render — the list its search box + table header + a row (`MinListHeight`), the
+preview its viewport + pager (`MinPreviewHeight`). Budgeting either below its floor
+does not shrink it; it renders the floor anyway and the surplus pushes the status
+bar off the bottom of the alt-screen. So the drag clamps at *both* ends
+(`clampPreviewHeight`): all the way up leaves the list its minimum, all the way
+down stops just above the status bar rather than collapsing the preview — which
+also keeps the divider grabbable so it can be dragged back.
+
 **Only raise when needed.** If the target is already Chrome's front (most-
 recently-active) window, skip `activate`/`set index` entirely — `activate` is
 app-level (it pulls *every* Chrome window, all profiles, above other apps), so
@@ -514,6 +523,7 @@ git -C ~/code/gh-dash checkout v4.25.0-local.1
 | `v4.25.0-local.17` | show merge-queue state in the list (enrich from `mergeQueue.entries`, since search omits it) + `defaults.showMergedFor` to keep recently-merged PRs |
 | `v4.25.0-local.18` | `defaults.mergeMethod` (+ per-repo overrides, + remembered-per-repo answer) so `m` merges without gh's per-PR method/submit prompts |
 | `v4.25.0-local.19` | merged PRs ordered newest-merge-first; `M` toggles them (instance-persistent); y/N confirmations take one keystroke, and repeating the opening key confirms |
+| `v4.25.0-local.20` | dragging the divider to the bottom stops above the status bar instead of hiding it (the preview has a minimum renderable height too) |
 
 Remember: the checkout **is** the installed extension, so rebuild after any
 `git checkout` or `gh dash` serves a stale binary.
