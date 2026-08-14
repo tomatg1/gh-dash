@@ -145,6 +145,42 @@ func TestParser(t *testing.T) {
 		require.Equal(t, NotificationsView, parsed.Defaults.View)
 	})
 
+	t.Run("Should default mouseMode to cellMotion when unset", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "config")
+		testutils.AssertNoError(t, err)
+		defer os.RemoveAll(dir)
+
+		configPath := path.Join(dir, "config.yml")
+		err = os.WriteFile(configPath, []byte("defaults:\n  view: prs\n"), 0o600)
+		testutils.AssertNoError(t, err)
+
+		parsed, err := ParseConfig(Location{
+			ConfigFlag:       configPath,
+			SkipGlobalConfig: true,
+		})
+
+		testutils.AssertNoError(t, err)
+		require.Equal(t, MouseModeCellMotion, parsed.Defaults.MouseMode)
+	})
+
+	t.Run("Should let mouseMode none release the mouse", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "config")
+		testutils.AssertNoError(t, err)
+		defer os.RemoveAll(dir)
+
+		configPath := path.Join(dir, "config.yml")
+		err = os.WriteFile(configPath, []byte("defaults:\n  mouseMode: none\n"), 0o600)
+		testutils.AssertNoError(t, err)
+
+		parsed, err := ParseConfig(Location{
+			ConfigFlag:       configPath,
+			SkipGlobalConfig: true,
+		})
+
+		testutils.AssertNoError(t, err)
+		require.Equal(t, MouseModeNone, parsed.Defaults.MouseMode)
+	})
+
 	t.Run("Should merge global config with passed config", func(t *testing.T) {
 		clearEnv := setXDGConfigHomeEnvVar(t, "testdata")
 		defer clearEnv()

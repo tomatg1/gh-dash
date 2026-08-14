@@ -44,11 +44,47 @@ type BaseModel struct {
 	PromptConfirmationBox     prompt.Model
 	IsPromptConfirmationShown bool
 	PromptConfirmationAction  string
+	// PromptConfirmationKey is the key that opened the prompt; pressing it again
+	// confirms (see DecideConfirmKey).
+	PromptConfirmationKey     string
 	LastFetchTaskId           string
 	IsSearchSupported         bool
 	ShowAuthorIcon            bool
 	IsFilteredByCurrentRemote bool
 	IsLoading                 bool
+	// pendingSelection is the URL of the item to reselect after the next row
+	// rebuild. A refresh recreates the section from scratch (cursor 0); stashing
+	// the selected item's URL here and restoring it once the fresh data lands
+	// keeps the cursor on the same item instead of snapping to the top. URL is
+	// used because it's on every RowData (notifications have no number).
+	pendingSelection string
+}
+
+// SetPendingSelection records the URL of the item to reselect after the next
+// rebuild. Empty clears it.
+func (m *BaseModel) SetPendingSelection(url string) {
+	m.pendingSelection = url
+}
+
+// RestoreSelection moves the cursor to the row whose URL matches the pending
+// selection, then clears the pending state. urls[i] is the URL of row i (same
+// order as the table rows). No-op when nothing is pending or the item is gone
+// (e.g. merged/closed since the last refresh) — the cursor is left where it is.
+func (m *BaseModel) RestoreSelection(urls []string) {
+	if m.pendingSelection == "" {
+		return
+	}
+	want := m.pendingSelection
+	m.pendingSelection = ""
+	for i, u := range urls {
+		if u == want {
+			m.Table.SetCurrItem(i)
+			return
+		}
+	}
+	// The item is gone (merged/closed since last refresh). Re-clamp the cursor
+	// to a valid row so a shrunk list can't leave it pointing past the end.
+	m.Table.SetCurrItem(m.Table.GetCurrItem())
 }
 
 type NewSectionOptions struct {
@@ -150,6 +186,7 @@ type Section interface {
 	GetItemSingularForm() string
 	GetItemPluralForm() string
 	GetTotalCount() int
+	SetPendingSelection(url string)
 }
 
 type Identifier interface {
@@ -168,6 +205,7 @@ type Table interface {
 	CurrRow() int
 	NextRow() int
 	PrevRow() int
+	SetCurrRow(int) int
 	FirstItem() int
 	LastItem() int
 	FetchNextPageSectionRows() []tea.Cmd
@@ -190,6 +228,7 @@ type PromptConfirmation interface {
 	SetIsPromptConfirmationShown(val bool) tea.Cmd
 	IsPromptConfirmationFocused() bool
 	SetPromptConfirmationAction(action string)
+	SetPromptConfirmationKey(key string)
 	GetPromptConfirmationAction() string
 	GetPromptConfirmation() string
 }
@@ -327,6 +366,11 @@ func (m *BaseModel) PrevRow() int {
 	return m.Table.PrevItem()
 }
 
+// SetCurrRow selects an absolute row index. Used by mouse clicks.
+func (m *BaseModel) SetCurrRow(id int) int {
+	return m.Table.SetCurrItem(id)
+}
+
 func (m *BaseModel) FirstItem() int {
 	return m.Table.FirstItem()
 }
@@ -384,6 +428,56 @@ func (m *BaseModel) SetIsPromptConfirmationShown(val bool) tea.Cmd {
 
 	m.PromptConfirmationBox.Blur()
 	return nil
+}
+
+// ConfirmDecision is what a keypress means while a confirmation prompt is open.
+type ConfirmDecision int
+
+const (
+	// ConfirmPassthrough leaves the key to the text input (typing a branch name,
+	// a PR title, or the merge-method letter).
+	ConfirmPassthrough ConfirmDecision = iota
+	ConfirmAccept
+	ConfirmCancel
+)
+
+// TextEntryPromptActions collect typed input rather than a yes/no answer, so they
+// keep requiring Enter — a single keystroke there is a character, not an answer.
+var TextEntryPromptActions = map[string]bool{
+	"new":          true, // branch name
+	"create_pr":    true, // PR title
+	"merge_method": true, // (s)quash / (m)erge / (r)ebase picker
+}
+
+// DecideConfirmKey maps a keypress to an answer for a yes/no confirmation, so
+// those prompts resolve on a single keystroke instead of needing Enter.
+//
+// Repeating the key that opened the prompt also accepts it: `m` to merge, `m`
+// again to go through with it. That is why the opening key is recorded — the
+// bindings are user-rebindable, so it can't be derived from the action name.
+func (m *BaseModel) DecideConfirmKey(key string) ConfirmDecision {
+	if TextEntryPromptActions[m.PromptConfirmationAction] {
+		return ConfirmPassthrough
+	}
+
+	switch key {
+	case "y", "Y":
+		return ConfirmAccept
+	case "n", "N", "esc", "ctrl+c":
+		return ConfirmCancel
+	}
+
+	if m.PromptConfirmationKey != "" && key == m.PromptConfirmationKey {
+		return ConfirmAccept
+	}
+
+	return ConfirmPassthrough
+}
+
+// SetPromptConfirmationKey records the key that opened the prompt so pressing it
+// again confirms.
+func (m *BaseModel) SetPromptConfirmationKey(key string) {
+	m.PromptConfirmationKey = key
 }
 
 func (m *BaseModel) SetPromptConfirmationAction(action string) {
@@ -486,6 +580,25 @@ func (m *BaseModel) GetPromptConfirmation() string {
 
 		case m.PromptConfirmationAction == "merge" && m.Ctx.View == config.PRsView:
 			prompt = "Are you sure you want to merge this PR? (y/N) "
+
+		case m.PromptConfirmationAction == "merge_squash" && m.Ctx.View == config.PRsView:
+			prompt = "Squash and merge this PR? (y/N) "
+
+		case m.PromptConfirmationAction == "merge_merge" && m.Ctx.View == config.PRsView:
+			prompt = "Merge this PR with a merge commit? (y/N) "
+
+		case m.PromptConfirmationAction == "merge_rebase" && m.Ctx.View == config.PRsView:
+			prompt = "Rebase and merge this PR? (y/N) "
+
+		// Asked once per repo; the answer is remembered for every gh-dash window.
+		case m.PromptConfirmationAction == "merge_method" && m.Ctx.View == config.PRsView:
+			prompt = "Merge how? (s)quash / (m)erge commit / (r)ebase — remembered for this repo: "
+
+		case m.PromptConfirmationAction == "enqueue" && m.Ctx.View == config.PRsView:
+			prompt = "Add this PR to the merge queue? (y/N) "
+
+		case m.PromptConfirmationAction == "dequeue" && m.Ctx.View == config.PRsView:
+			prompt = "Remove this PR from the merge queue? (y/N) "
 
 		case m.PromptConfirmationAction == "update" && m.Ctx.View == config.PRsView:
 			prompt = "Are you sure you want to update this PR? (y/N) "

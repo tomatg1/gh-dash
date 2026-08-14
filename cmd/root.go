@@ -178,6 +178,13 @@ func init() {
 		"write cpu profile to file",
 	)
 
+	rootCmd.Flags().String(
+		"instance",
+		"",
+		"name this dashboard instance so its persisted layout is kept separate "+
+			"(overrides GH_DASH_INSTANCE; defaults implicitly to the launch directory)",
+	)
+
 	rootCmd.Flags().BoolP(
 		"help",
 		"h",
@@ -186,6 +193,14 @@ func init() {
 	)
 
 	rootCmd.Run = func(_ *cobra.Command, args []string) {
+		// --instance resolves to a config path + a synthetic instance name that
+		// scopes persisted state (layout + selection). See instance.go.
+		instFlag, _ := rootCmd.Flags().GetString("instance")
+		resolvedCfg, instName := resolveInstance(instFlag, cfgFlag)
+		cfgFlag = resolvedCfg
+		if instName != "" {
+			os.Setenv("GH_DASH_INSTANCE", instName)
+		}
 		debug, _ := rootCmd.Flags().GetBool("debug")
 		var loggerFile *os.File
 		if debug {
@@ -235,10 +250,6 @@ func init() {
 			)
 		} else {
 			log.Warn("did not find github repo at current path")
-		}
-
-		if err != nil {
-			log.Fatal("Cannot parse debug flag", err)
 		}
 
 		zone.NewGlobal()

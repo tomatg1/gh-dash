@@ -26,6 +26,9 @@ type Model struct {
 
 	// Pending confirmation action for PR/Issue (e.g., "pr_close", "issue_reopen")
 	pendingAction string
+	// pendingKey is the key that opened the confirmation; pressing it again
+	// confirms, mirroring the section prompts.
+	pendingKey string
 }
 
 func NewModel(ctx *context.ProgramContext) Model {
@@ -83,13 +86,32 @@ func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
 }
 
 // SetPendingPRAction sets a pending PR action and returns the confirmation prompt.
-// action is one of: "close", "reopen", "ready", "merge", "update"
+// action is one of: "close", "reopen", "ready", "merge", "merge_squash",
+// "merge_merge", "merge_rebase", "enqueue", "dequeue", "update",
+// "approveWorkflows".
 // Returns empty string if no subject PR is set.
 func (m *Model) SetPendingPRAction(action string) string {
 	if m.subjectPR == nil {
 		return ""
 	}
 	m.pendingAction = "pr_" + action
+	number := m.subjectPR.GetNumber()
+
+	// The merge-queue and per-strategy actions don't fit the "are you sure you
+	// want to <verb>" frame; they're worded as the PRs view words them, so the
+	// same key reads the same whichever pane it's pressed in.
+	switch action {
+	case "enqueue":
+		return fmt.Sprintf("Add PR #%d to the merge queue? (y/N)", number)
+	case "dequeue":
+		return fmt.Sprintf("Remove PR #%d from the merge queue? (y/N)", number)
+	case "merge_squash":
+		return fmt.Sprintf("Squash and merge PR #%d? (y/N)", number)
+	case "merge_merge":
+		return fmt.Sprintf("Merge PR #%d with a merge commit? (y/N)", number)
+	case "merge_rebase":
+		return fmt.Sprintf("Rebase and merge PR #%d? (y/N)", number)
+	}
 
 	actionDisplay := action
 	switch action {
@@ -98,11 +120,7 @@ func (m *Model) SetPendingPRAction(action string) string {
 	case "approveWorkflows":
 		actionDisplay = "approve all workflows for"
 	}
-	return fmt.Sprintf(
-		"Are you sure you want to %s PR #%d? (y/N)",
-		actionDisplay,
-		m.subjectPR.GetNumber(),
-	)
+	return fmt.Sprintf("Are you sure you want to %s PR #%d? (y/N)", actionDisplay, number)
 }
 
 // SetPendingIssueAction sets a pending Issue action and returns the confirmation prompt.
@@ -136,6 +154,12 @@ func (m *Model) ClearPendingAction() {
 	m.pendingAction = ""
 }
 
+// SetPendingKey records the key that opened the pending confirmation so pressing
+// it again confirms. Empty clears it.
+func (m *Model) SetPendingKey(key string) {
+	m.pendingKey = key
+}
+
 // Update handles key messages for confirmation dialogs.
 // Returns the confirmed action string (empty if not confirmed or cancelled).
 func (m Model) Update(msg tea.Msg) (Model, string) {
@@ -145,13 +169,18 @@ func (m Model) Update(msg tea.Msg) (Model, string) {
 
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		if msg.String() == "y" || msg.String() == "Y" {
+		pressed := msg.String()
+		// Repeating the key that opened the prompt confirms it, the same as `y`
+		// (press `m` to merge, `m` again to go through with it).
+		if pressed == "y" || pressed == "Y" || (m.pendingKey != "" && pressed == m.pendingKey) {
 			action := m.pendingAction
 			m.pendingAction = ""
+			m.pendingKey = ""
 			return m, action
 		}
 		// Any other key cancels the confirmation
 		m.pendingAction = ""
+		m.pendingKey = ""
 	}
 
 	return m, ""

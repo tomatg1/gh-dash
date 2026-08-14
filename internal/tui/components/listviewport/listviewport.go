@@ -124,6 +124,27 @@ func (m *Model) LastItem() int {
 	return m.currId
 }
 
+// SetCurrItem jumps the cursor to an absolute item index. A mouse click lands
+// on an arbitrary row rather than stepping one at a time, so walk there via
+// Next/PrevItem: those keep the scroll bookkeeping (topBoundId, bottomBoundId,
+// viewport offset) consistent, which recomputing the bounds by hand would not.
+// The walk is bounded by the visible rows, so it is cheap.
+func (m *Model) SetCurrItem(id int) int {
+	if m.NumCurrentItems == 0 {
+		return m.currId
+	}
+
+	id = utils.Max(0, utils.Min(id, m.NumCurrentItems-1))
+	for m.currId < id {
+		m.NextItem()
+	}
+	for m.currId > id {
+		m.PrevItem()
+	}
+
+	return m.currId
+}
+
 func (m *Model) SetDimensions(dimensions constants.Dimensions) {
 	m.viewport.SetHeight(max(0, dimensions.Height))
 	m.viewport.SetWidth(max(0, dimensions.Width))

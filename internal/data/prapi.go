@@ -27,13 +27,18 @@ type SuggestedReviewer struct {
 }
 
 type EnrichedPullRequestData struct {
+	Id      string `graphql:"id"`
 	Url     string
 	Number  int
 	Title   string
 	Body    string
 	State   string
 	IsDraft bool
-	Author  struct {
+	// IsInMergeQueue is trustworthy here: this data comes from resource(url:),
+	// which computes it, not from search, which leaves it false. It's what makes
+	// `m` on a notification's PR dequeue rather than try to enqueue twice.
+	IsInMergeQueue bool
+	Author         struct {
 		Login string
 	}
 	AuthorAssociation string
@@ -65,6 +70,7 @@ type EnrichedPullRequestData struct {
 }
 
 type PullRequestData struct {
+	Id     string `graphql:"id"`
 	Number int
 	Title  string
 	Author struct {
@@ -87,13 +93,17 @@ type PullRequestData struct {
 	HeadRef struct {
 		Name string
 	}
-	Repository       Repository
-	Assignees        Assignees            `graphql:"assignees(first: 3)"`
-	Comments         Comments             `graphql:"comments"`
-	ReviewThreads    ReviewThreads        `graphql:"reviewThreads"`
-	Reviews          ReviewsNumber        `graphql:"reviews"`
-	ReviewRequests   ReviewRequestsNumber `graphql:"reviewRequests"`
-	IsDraft          bool
+	Repository     Repository
+	Assignees      Assignees            `graphql:"assignees(first: 3)"`
+	Comments       Comments             `graphql:"comments"`
+	ReviewThreads  ReviewThreads        `graphql:"reviewThreads"`
+	Reviews        ReviewsNumber        `graphql:"reviews"`
+	ReviewRequests ReviewRequestsNumber `graphql:"reviewRequests"`
+	IsDraft        bool
+	// MergedAt is nil for anything not merged. Recently-merged PRs are ordered by
+	// it, because search returns them in the filter's sort order (usually created),
+	// which is not the order they merged in.
+	MergedAt         *time.Time
 	IsInMergeQueue   bool
 	Commits          LastCommitStatus `graphql:"commits(last: 1)"`
 	Labels           PRLabels         `graphql:"labels(first: 6)"`
@@ -447,6 +457,7 @@ func (data PullRequestData) GetCreatedAt() time.Time {
 // This is useful when we fetch a single PR and need basic PR fields
 func (e EnrichedPullRequestData) ToPullRequestData() PullRequestData {
 	return PullRequestData{
+		Id:                e.Id,
 		Number:            e.Number,
 		Title:             e.Title,
 		Author:            e.Author,
@@ -466,6 +477,7 @@ func (e EnrichedPullRequestData) ToPullRequestData() PullRequestData {
 		Repository:        e.Repository,
 		Assignees:         e.Assignees,
 		IsDraft:           e.IsDraft,
+		IsInMergeQueue:    e.IsInMergeQueue,
 		Labels:            e.Labels,
 		// Note: Comments, ReviewThreads, Reviews, ReviewRequests, Commits
 		// have different types in EnrichedPullRequestData vs PullRequestData

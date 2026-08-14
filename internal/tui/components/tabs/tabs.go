@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -15,6 +16,13 @@ import (
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
 	"github.com/dlvhdr/gh-dash/v4/internal/utils"
 )
+
+// TabZoneID is the bubblezone id for a section tab. It lives here so the
+// renderer that marks the zone and the click handler that reads it cannot
+// drift apart.
+func TabZoneID(sectionIdx int) string {
+	return fmt.Sprintf("tab-%d", sectionIdx)
+}
 
 type SectionTab struct {
 	section section.Section
@@ -142,7 +150,9 @@ func (m *Model) UpdateTabTitles() {
 				utils.ShortNumber(tab.section.GetTotalCount()))
 		}
 
-		titles = append(titles, title)
+		// bubblezone markers are private ANSI CSI sequences, so lipgloss treats
+		// them as zero-width and the carousel's layout math is unaffected.
+		titles = append(titles, common.MarkZone(TabZoneID(i), title))
 	}
 
 	oldCursor := m.carousel.Cursor()
@@ -150,9 +160,36 @@ func (m *Model) UpdateTabTitles() {
 	m.carousel.SetCursor(oldCursor)
 }
 
+// isLocalVersion reports whether the version string is a dev or fork build
+// rather than a published release. git describe adds a "-N-g<sha>" or "-dirty"
+// suffix for anything past a tag, and the fork tags carry "local".
+func isLocalVersion(v string) bool {
+	return v == "" || v == "dev" ||
+		strings.Contains(v, "local") ||
+		strings.Contains(v, "dirty") ||
+		strings.Contains(v, "-g")
+}
+
+// wrapVersionAtHyphen splits the version at its first hyphen so a value like
+// "v4.25.0-local.2" stacks as two lines ("v4.25.0" / "-local.2") beside the
+// two-line logo, instead of running off to the right. Splitting only at the
+// first hyphen keeps it to at most two lines even for a git-describe suffix.
+func wrapVersionAtHyphen(v string) string {
+	if i := strings.Index(v, "-"); i >= 0 {
+		return v[:i] + "\n" + v[i:]
+	}
+
+	return v
+}
+
 func (m *Model) viewLogo() string {
-	version := lipgloss.NewStyle().Foreground(m.ctx.Theme.SecondaryText).Render(m.ctx.Version)
-	if m.latestVersion != "" && m.ctx.Version != "dev" && m.ctx.Version != m.latestVersion {
+	version := lipgloss.NewStyle().
+		Foreground(m.ctx.Theme.SecondaryText).
+		Render(wrapVersionAtHyphen(m.ctx.Version))
+	// Don't nag "Update available!" on a local/fork build. It is ahead of the
+	// upstream release, so its version always differs from the latest tag --
+	// following that prompt would throw away the fork.
+	if m.latestVersion != "" && !isLocalVersion(m.ctx.Version) && m.ctx.Version != m.latestVersion {
 		version = lipgloss.JoinVertical(
 			lipgloss.Left,
 			version,

@@ -3,6 +3,7 @@ package prssection
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -22,6 +23,66 @@ import (
 )
 
 const SectionType = "pr"
+
+// closePrompt dismisses the confirmation prompt, batching whatever the answer
+// kicked off with the blink command.
+func (m *Model) closePrompt(cmd tea.Cmd) tea.Cmd {
+	m.PromptConfirmationBox.Reset()
+
+	return tea.Batch(cmd, m.SetIsPromptConfirmationShown(false))
+}
+
+// runConfirmedAction performs the action the prompt was confirming.
+func (m *Model) runConfirmedAction(action string) tea.Cmd {
+	pr := m.GetCurrRow()
+	if pr == nil {
+		return nil
+	}
+	sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
+
+	switch action {
+	case "close":
+		return tasks.ClosePR(m.Ctx, sid, pr)
+	case "reopen":
+		return tasks.ReopenPR(m.Ctx, sid, pr)
+	case "ready":
+		return tasks.PRReady(m.Ctx, sid, pr)
+	case "merge":
+		return tasks.MergePR(m.Ctx, sid, pr)
+	case "merge_squash", "merge_merge", "merge_rebase":
+		return tasks.MergePRWithMethod(m.Ctx, sid, pr, strings.TrimPrefix(action, "merge_"))
+	case "enqueue":
+		if prd, ok := pr.(*prrow.Data); ok && prd.Primary != nil {
+			return tasks.EnqueuePR(m.Ctx, sid, prd.Primary.Number, prd.Primary.Id)
+		}
+	case "dequeue":
+		if prd, ok := pr.(*prrow.Data); ok && prd.Primary != nil {
+			return tasks.DequeuePR(m.Ctx, sid, prd.Primary.Number, prd.Primary.Id)
+		}
+	case "update":
+		return tasks.UpdatePR(m.Ctx, sid, pr)
+	case "approveWorkflows":
+		return tasks.ApproveWorkflows(m.Ctx, sid, pr)
+	}
+
+	return nil
+}
+
+// mergeMethodFromKey maps the merge-method picker's answer to a `gh pr merge`
+// strategy flag. Accepts the initial letter or the full word; "" for anything
+// else, which cancels (so Enter or a stray key never merges).
+func mergeMethodFromKey(input string) string {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "s", "squash":
+		return "squash"
+	case "m", "merge":
+		return "merge"
+	case "r", "rebase":
+		return "rebase"
+	}
+
+	return ""
+}
 
 type Model struct {
 	section.BaseModel
@@ -80,38 +141,50 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		}
 
 		if m.IsPromptConfirmationFocused() {
-			switch msg.String() {
+			action := m.GetPromptConfirmationAction()
+			pressed := msg.String()
+
+			// The merge-method picker answers with a strategy letter rather than
+			// y/N: the letter IS the confirmation, and it resolves on that single
+			// keystroke. The choice is remembered for the repo once the merge
+			// succeeds.
+			if action == "merge_method" {
+				if method := mergeMethodFromKey(pressed); method != "" {
+					return m, m.closePrompt(m.runConfirmedAction("merge_" + method))
+				}
+				if pressed == "esc" || pressed == "ctrl+c" {
+					return m, m.closePrompt(nil)
+				}
+			}
+
+			// y/N confirmations resolve on one keystroke — including a repeat of
+			// the key that opened them (press `m` to merge, `m` again to confirm).
+			switch m.DecideConfirmKey(pressed) {
+			case section.ConfirmAccept:
+				return m, m.closePrompt(m.runConfirmedAction(action))
+			case section.ConfirmCancel:
+				return m, m.closePrompt(nil)
+			}
+
+			switch pressed {
 			case "ctrl+c", "esc":
-				m.PromptConfirmationBox.Reset()
-				cmd = m.SetIsPromptConfirmationShown(false)
-				return m, cmd
+				return m, m.closePrompt(nil)
 
 			case "enter":
+				// Typed-then-Enter still works, and an empty answer cancels
+				// (the prompt reads "(y/N)").
 				input := m.PromptConfirmationBox.Value()
-				action := m.GetPromptConfirmationAction()
-				pr := m.GetCurrRow()
-				sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
-				if input == "Y" || input == "y" {
-					switch action {
-					case "close":
-						cmd = tasks.ClosePR(m.Ctx, sid, pr)
-					case "reopen":
-						cmd = tasks.ReopenPR(m.Ctx, sid, pr)
-					case "ready":
-						cmd = tasks.PRReady(m.Ctx, sid, pr)
-					case "merge":
-						cmd = tasks.MergePR(m.Ctx, sid, pr)
-					case "update":
-						cmd = tasks.UpdatePR(m.Ctx, sid, pr)
-					case "approveWorkflows":
-						cmd = tasks.ApproveWorkflows(m.Ctx, sid, pr)
+				if action == "merge_method" {
+					if method := mergeMethodFromKey(input); method != "" {
+						return m, m.closePrompt(m.runConfirmedAction("merge_" + method))
 					}
+					return m, m.closePrompt(nil)
+				}
+				if input == "Y" || input == "y" {
+					return m, m.closePrompt(m.runConfirmedAction(action))
 				}
 
-				m.PromptConfirmationBox.Reset()
-				blinkCmd := m.SetIsPromptConfirmationShown(false)
-
-				return m, tea.Batch(cmd, blinkCmd)
+				return m, m.closePrompt(nil)
 			}
 
 			break
@@ -190,6 +263,9 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 				currPr.Primary.State = "MERGED"
 				currPr.Primary.Mergeable = ""
 			}
+			if msg.IsInMergeQueue != nil {
+				currPr.Primary.IsInMergeQueue = *msg.IsInMergeQueue
+			}
 			m.Prs[i] = currPr
 			m.SetIsLoading(false)
 			m.Table.SetRows(m.BuildRows())
@@ -207,6 +283,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)
 			m.Table.SetRows(m.BuildRows())
+			m.restoreSelection()
 			m.Table.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 		}
@@ -414,7 +491,7 @@ func (m Model) BuildRows() []table.Row {
 		}
 		rows = append(
 			rows,
-			prModel.ToTableRow(currItem == i),
+			prModel.ToTableRow(i, currItem == i),
 		)
 	}
 
@@ -436,6 +513,37 @@ type SectionPullRequestsFetchedMsg struct {
 	TaskId     string
 }
 
+// DropMergedRows removes merged PRs from the section's data and rebuilds its
+// rows, keeping whatever is still selected selected.
+//
+// The filtering has to happen here rather than in BuildRows because the table
+// cursor indexes Prs directly (see GetCurrRow) — hiding rows at render time
+// would leave the cursor pointing at a different PR than the highlighted one.
+func (m *Model) DropMergedRows() {
+	var selected string
+	if r := m.GetCurrRow(); r != nil {
+		selected = r.GetUrl()
+	}
+
+	kept := make([]prrow.Data, 0, len(m.Prs))
+	for _, pr := range m.Prs {
+		if pr.Primary != nil && pr.Primary.State == "MERGED" {
+			continue
+		}
+		kept = append(kept, pr)
+	}
+	if len(kept) == len(m.Prs) {
+		return
+	}
+
+	m.Prs = kept
+	if selected != "" {
+		m.SetPendingSelection(selected)
+	}
+	m.Table.SetRows(m.BuildRows())
+	m.restoreSelection()
+}
+
 func (m *Model) GetCurrRow() data.RowData {
 	idx := m.Table.GetCurrItem()
 	if idx < 0 || idx >= len(m.Prs) {
@@ -443,6 +551,18 @@ func (m *Model) GetCurrRow() data.RowData {
 	}
 	pr := m.Prs[idx]
 	return &pr
+}
+
+// restoreSelection re-selects, by URL, whatever was selected before a refresh
+// rebuilt this section.
+func (m *Model) restoreSelection() {
+	urls := make([]string, len(m.Prs))
+	for i := range m.Prs {
+		if m.Prs[i].Primary != nil {
+			urls[i] = m.Prs[i].Primary.GetUrl()
+		}
+	}
+	m.RestoreSelection(urls)
 }
 
 func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
@@ -489,6 +609,26 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 				SectionType: m.Type,
 				TaskId:      taskId,
 				Err:         err,
+			}
+		}
+
+		// search() doesn't return isInMergeQueue, so enrich queued state from the
+		// authoritative per-repo merge queue (scoped to mergeQueueRepos).
+		data.EnrichMergeQueueStatus(m.Ctx.Config.Defaults, res.Prs)
+
+		// Keep recently-merged PRs visible for a configurable window. Only on the
+		// first page (PageInfo == nil) so pagination doesn't re-append them, and
+		// not at all while the `M` toggle hides them — no point paying for a search
+		// whose results would be filtered straight back out.
+		if m.PageInfo == nil && !m.Ctx.HideMergedPRs {
+			if w := m.Ctx.Config.Defaults.ResolveMergedWindow(m.Config.ShowMergedFor); w > 0 {
+				mergedQ := data.MergedSinceQuery(m.GetFilters(), time.Now().Add(-w))
+				if mres, mErr := data.FetchPullRequests(mergedQ, *limit, nil); mErr == nil {
+					// Newest merge first; search returned them in the filter's own
+					// sort order, which is not merge order.
+					data.SortByMergedAtDesc(mres.Prs)
+					res.Prs = append(res.Prs, mres.Prs...)
+				}
 			}
 		}
 
@@ -542,6 +682,17 @@ func FetchAllSections(
 			oldSection := prs[i+1].(*Model)
 			sectionModel.Prs = oldSection.Prs
 			sectionModel.LastFetchTaskId = oldSection.LastFetchTaskId
+			// Keep the cursor on the same PR across the refresh. Render the
+			// carried-over rows with the cursor already in place NOW, so the list
+			// doesn't flash to the top row while the fetch is in flight (a keypress
+			// in that window would otherwise act on the wrong PR). SetPendingSelection
+			// stays armed so the cursor is re-pinned by URL once the fresh, possibly
+			// reordered data lands.
+			if r := oldSection.GetCurrRow(); r != nil {
+				sectionModel.SetPendingSelection(r.GetUrl())
+			}
+			sectionModel.Table.SetRows(sectionModel.BuildRows())
+			sectionModel.Table.SetCurrItem(oldSection.Table.GetCurrItem())
 		}
 		if sectionConfig.Layout.AuthorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.AuthorIcon.Hidden

@@ -1,0 +1,827 @@
+# gh-dash fork — local notes
+
+Private notes for a personal `gh-dash` fork, checked out at `~/code/gh-dash`.
+These notes describe local build tooling and conventions; paths assume a
+`~/code/gh-dash` checkout — adjust to yours.
+
+Upstream: `dlvhdr/gh-dash` — forked at v4.25.0 (`49f37e4`), **rebased onto
+`4ea7c39`, which includes v4.25.1 and v4.25.2**.
+
+Upstream is under a [strict no-AI policy](../AI_POLICY.md) for outside
+contributions, and its PR template asks contributors to attest they've read it.
+Nothing from this fork goes upstream as a patch; a bug worth reporting goes as a
+plain issue, written by hand.
+
+**Real values never live in this repo.** Org names, repo names, browser profiles
+and the rest belong in `~/.config/gh-dash/config.yml`, which gh-dash reads and
+never writes. Every YAML block below is an illustration using placeholders
+(`your-org/your-repo`, `Profile 1`) — substitute, don't copy. Same rule for
+fixtures: tests use `acme`, not a real organization, so the repo stays shareable.
+
+---
+
+## Why the fork exists
+
+Two gaps in upstream, both of which turned out to be small once the internals were read:
+
+1. **Mouse capture was unconditional.** `internal/tui/ui.go` hardcoded
+   `MouseModeCellMotion`. Capture is what makes UI clickable — but it also
+   intercepts click-drag, which is what your terminal uses for native text
+   selection. There was no way to opt out, so "highlight to copy" was impossible.
+2. **Nothing was actually clickable.** `bubblezone` was already a dependency and
+   `zone.Scan()` already wrapped the composed view, but the only marked zone in
+   the entire codebase was the **donate button**. Tabs and rows did nothing.
+   (Upstream issue [#722](https://github.com/dlvhdr/gh-dash/issues/722), still open.)
+3. **v4.25.0 refuses to start outside a git repo.** Found the hard way while
+   restarting: `gh dash` from `~` exits 1. See below — it's a real upstream bug.
+
+## What the fork adds
+
+### `defaults.mouseMode` (commit `d4a6ff9`)
+
+| value | effect |
+| --- | --- |
+| `cellMotion` | clicks, wheel, drag — **default**, matches upstream |
+| `allMotion` | also motion with no button held |
+| `none` | no capture → **native highlight-to-copy works again** |
+
+The default is `cellMotion`, so behavior is unchanged unless you opt out.
+Note `MouseModeNone` is `iota 0` in bubbletea, so a careless `bool` field would
+have silently defaulted the feature *off*; the config default is set explicitly
+in `getDefaultConfig()` and pinned by a test.
+
+### Clickable tabs + rows + wheel (commit `6815868`)
+
+Marked bubblezone zones on the tab titles and table rows, and handled the wheel.
+Click semantics were superseded by `5d6569b` below.
+
+### Drag to select (commit `5d6569b`, threshold `a3c069a`)
+
+Drag highlights text and copies it on release. The highlight is dropped on the
+next press, on any keystroke, and on wheel scroll — all three move what sits
+under it. A drag that wanders back onto the cell it started on is still a drag,
+so it can never accidentally open a browser.
+
+**Drag threshold (`a3c069a`).** A press only becomes a drag once the pointer
+moves past a threshold (2 columns / 1 row); within that it stays a click.
+Without this, a trackpad tap's inevitable one-cell jitter registered as a drag —
+copying a stray character and leaving a lingering partial highlight stuck on the
+row instead of selecting it. Vertical counts double because rows are two cells tall.
+
+**Prior-row clearing (`f6080e4`).** `BuildRows()` bakes the selected styling into
+each row, and the section rebuilds its rows only at the tail of its `Update` (on
+any message). The keyboard path reaches that; the early-returning mouse-click
+path skipped it — so a click moved the cursor but left the old row highlighted
+(and the new row "split") until an async fetch rebuilt "a few seconds later." The
+click path now forwards through the same rebuild, so the old row clears at once.
+
+### Opening takes intent (commit `2ac3d2f`)
+
+Single-click-to-open made every click a browser launch, which is the wrong
+default for a list you navigate with the mouse.
+
+| gesture | result |
+| --- | --- |
+| click the **`#1234`** | open the PR |
+| click the **CI icon** | open `<pr>/checks` |
+| click the **review icon** | open `<pr>/files` |
+| click the **comments count** | open the conversation |
+| **double-click** a row | open the PR |
+| click **anywhere else** in a row | select it, nothing more |
+| click a **tab** | switch section |
+| **drag** | highlight text; copies on release |
+| **wheel** | move the row selection |
+
+The `#1234` is not a table cell — it lives inside `renderExtendedTitle`'s top
+line — so only that substring is marked, not the whole line. Compact rows have
+no extended title and therefore no number zone; they still open on double-click.
+
+Bubbletea reports presses and releases but **no click count**, so the
+double-click window (400ms) is measured in `registerRowClick()`. A completed
+pair is consumed, so a third click starts a fresh one rather than re-opening.
+Clicking an icon does not arm a pairing.
+
+### Clickable chrome (commit `6762327`)
+
+Everything else that's logical to click now activates:
+
+| click | result |
+| --- | --- |
+| footer **PRs / Issues / Notifications** | switch straight to that view (not a cycle) |
+| footer **`? help`** | toggle the full help pane |
+| preview **Overview / Activity / Commits / Checks / Files** | switch the detail tab |
+
+Two implementation notes:
+
+- Footer buttons switch *directly*. `switchSelectedView`'s tail was factored
+  into `applyViewChange()`, shared by the keyboard cycle and a new
+  `setSelectedView(target)` the click uses. Clicking the active view is a no-op.
+- The preview tabs share the same carousel component as the section tabs, so
+  they mark the same way — but the body dispatch was `switch SelectedItem()`
+  against the raw labels, and embedding zone markers in the items would have
+  broken that string compare. It's now keyed on `carousel.Cursor()`, and
+  `SelectedTab()` returns the clean label by index.
+
+**`? help` toggle (fix `54b35c6`).** Two bugs made the help click glitchy:
+mouse branches `return` early and skipped the `syncProgramContext()` at the end
+of `Update` that the keyboard path falls through to, so `ShowAll` flipped but the
+section viewports never resized — the frame grew, panes weren't restored on
+close, and the growth pushed the `? help` bar out from under the pointer. Fixed
+by running both syncs in the click branch. Separately, help now renders **above**
+the status bar (it was below), pinning the bar — and the `? help` toggle and view
+switcher on it — to the bottom line, so you can click the same spot to open and
+close. The view-switcher click had the same early-return gap and got the same fix.
+
+### Draggable preview divider, remembered (commit `9265f8f`)
+
+Press the divider under the list to resize instead of starting a selection; drag
+moves it; release persists it. Both panes are floored at one row — a zero-height
+pane would be unrecoverable, since its own divider would be unreachable.
+
+Persisted to `$XDG_STATE_HOME/gh-dash/layout.json` (else `~/.local/state/…`),
+written temp-file-then-rename so a crash mid-write can't leave a half-parsed
+layout. A corrupt file reads as "nothing remembered".
+
+**On "each instance":** see the [Instances](#instances) section — persisted
+state (layout + selection) is scoped per instance, defaulting implicitly to the
+launch directory's config.
+
+A height saved on a taller terminal is clamped on load, so a big preview can
+never swallow the list. Only a **bottom-docked** preview has an up/down divider;
+a right-docked one would need a left/right drag, which isn't implemented.
+
+### Don't die outside a git repo (~~commit `a63ef7f`~~ — now upstream's, v4.25.2)
+
+**No longer a fork patch.** Upstream fixed the same bug in `a613ef7` (PR #933,
+from #930) and shipped it in **v4.25.2**, so the fork's commit was dropped when
+rebasing onto it — it was the one conflict of the whole rebase, and both sides
+had deleted the same block. Kept here because the diagnosis is still the useful
+part, and because it's the fork's one case of upstream independently converging
+on the same fix.
+
+An upstream v4.25.0 regression. `cmd/root.go` did this:
+
+```go
+gitRepo, ghRepo, err := getCurrentGitAndGitHubRepos()
+if err != nil {
+    log.Error("error while determining git and github repos", "err", err)  // handled
+}
+...                                                                        // nil checks warn + carry on
+if err != nil {
+    log.Fatal("Cannot parse debug flag", err)   // ← fatals on that same handled error
+}
+```
+
+Launching from `~` (or anywhere not a repo) died at startup:
+
+```
+FATA Cannot parse debug flag failed to run git: fatal: not a git repository ...  ="missing value"
+```
+
+The stray `="missing value"` is `charmbracelet/log` receiving `err` as a *key*
+rather than a key/value pair — a second symptom of the same stray line. Dropping
+the re-check restores the pre-#931 behavior (empty repo path, global config).
+
+~~This one is worth upstreaming on its own~~ — upstream got there first.
+
+### Sub-minute auto-refresh (commit `667f72b`)
+
+Upstream's `defaults.refetchIntervalMinutes` is whole-minute granularity, so
+anything under a minute was impossible. Added `defaults.refetchIntervalSeconds`,
+which takes precedence when set:
+
+```yaml
+defaults:
+  refetchIntervalSeconds: 30   # fork-only; sub-minute cadence
+  # refetchIntervalMinutes: 5  # still works; seconds wins when both are set
+```
+
+`0` on both disables auto-refresh. The refresh tick is driven off the effective
+seconds value. **This config's current setting is `refetchIntervalSeconds: 30`.**
+
+### Open links in a chosen browser profile (commit `9adb343`)
+
+By default gh-dash opens PR/issue URLs in the OS default browser — which may be
+the wrong browser profile, signed in to the wrong GitHub account.
+`defaults.urlOpenCommand` overrides that: it's rendered as a text/template with
+`{{.URL}}` and run via `sh -c`, so links go to a specific browser/profile.
+
+```yaml
+defaults:
+  # macOS: open in the Chrome profile already signed in to the right account.
+  # Find the profile directory in ~/Library/Application Support/Google/Chrome
+  # (Default, Profile 1, Profile 2, …) — NOT the display name.
+  urlOpenCommand: '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --profile-directory="Profile 1" "{{.URL}}"'
+```
+
+Empty (the default) = unchanged OS-default-browser behavior. All PR-open paths
+(`o`, click, double-click, the `#number`, the CI/review/comments icons) route
+through it via `internal/urlopen`.
+
+**Speed matters here.** Launching the Chrome *binary* with `--profile-directory`
+to hand off a URL takes **~4s**; `open`/AppleScript talk to the running Chrome in
+**~0.2s** but can't target a *profile*. So `tooling/open-url.sh` caches the target
+profile's **window id** and adds a tab to it via AppleScript (fast), using the
+slow binary launch only to bootstrap/repair the cache. Point `urlOpenCommand` at
+it:
+
+```yaml
+urlOpenCommand: '~/code/gh-dash/tooling/open-url.sh "Profile 1" "{{.URL}}"'
+```
+
+The window-id cache lives in `$XDG_STATE_HOME/gh-dash/chrome-window-<profile>`.
+First open after a Chrome-window closes is slow (re-bootstrap); the rest are
+instant. It brings the target window to the front and selects the tab.
+
+**No duplicate tabs.** If the window already has the URL open, that tab is
+selected instead of a second one being appended. A tab matches when its URL,
+minus any `#fragment`, is the target *or a sub-page of it* — so a PR you're
+reading on `/files`, or scrolled to an `#issuecomment` anchor, is reused rather
+than duplicated (you land on that tab as-is, not a fresh Conversation view). The
+`/` and `?` bounds keep `.../pull/627` from matching `.../pull/6270`.
+
+**Focusing the right window** (two AppleScript traps): reference the window by
+`window id <n>`, never a `repeat with w in windows` loop variable — the loop
+variable is positional, and `activate` reorders the windows, so a later
+`set index` would raise whatever window slid into that old slot (the one you were
+just on). And set the index **after** `activate`, not before — before
+`make new tab` it won't stick.
+
+**The divider stops at both floors.** The invariant is that a pane must never
+render more rows than it is budgeted — any overshoot pushes the status bar off the
+bottom of the alt-screen. The list can't render below its search box + table header
++ a row (`MinListHeight`), so the preview is capped to preserve that. Downward the
+preview collapses all the way to **zero content**: at one row it drops its scroll
+pager, and at zero it renders only its top border — the divider line itself, drawn
+directly, because rendering empty content through the bordered style still emits a
+blank row. So dragging down hides the preview's title and pager and stops exactly
+one row above the status bar, with the divider still on-screen to drag back.
+
+A collapsed preview is a *remembered* state, so `loadPreviewHeight` returns
+`(height, ok)`: 0 means "dragged to the bottom", absent means "use the config".
+Treating 0 as "unset" silently restored the configured percentage instead.
+
+**Only raise when needed.** If the target is already Chrome's front (most-
+recently-active) window, skip `activate`/`set index` entirely — `activate` is
+app-level (it pulls *every* Chrome window, all profiles, above other apps), so
+raising a window that's already active needlessly surfaces the other-profile
+windows. Verified: with the target already front, opening a link leaves the whole
+window z-order unchanged. Caveat: `make new tab` (and navigating a tab) brings
+Chrome-the-app forward on their own — that's Chrome's behavior, not ours — but no
+*other* window ever comes above the target, and the reuse path (URL already open,
+just `set active tab index`) doesn't activate Chrome at all.
+
+**Startup pre-warm.** When `urlOpenCommand` is set, gh-dash opens the first
+configured repo's PR list on launch — in a background goroutine, so it never
+blocks startup — which warms the window-id cache and leaves a useful tab open, so
+the first real open is already instant. The URL is derived from the PR sections
+(first `repo:`, else first `org:`, else your PR inbox). Disable with
+`defaults.disableBrowserPrewarm: true`.
+
+The pre-warm sets `GH_DASH_PREWARM=1` on the command (`urlopen.Prewarm`), and
+`open-url.sh` **skips entirely when its cached window is still open** — so a fresh
+tab is only opened when the cache is actually cold (first launch, or after you've
+closed that Chrome window). Frequent restarts don't pile up tabs.
+
+> Chrome maps a display name (e.g. "Work") to a directory (`Profile N`) in
+> `Local State` / each profile's `Preferences`. gh-dash needs the **directory**.
+
+### Mouse wheel direction (commit `5af211b`)
+
+The wheel-to-selection mapping felt reversed under macOS **natural scrolling**.
+Default is now tuned for it: a two-finger-**down** gesture moves the selection
+**down** the list. Set `defaults.mouseWheelReverse: true` for a classic mouse.
+
+> macOS *natural scrolling* (System Settings → Trackpad → "Natural scrolling",
+> on by default) makes content follow your fingers, like a touchscreen — which
+> flips what direction the terminal reports for a wheel event. What you want for
+> a list (push down → go down) is the mouse-wheel feel; the default now delivers
+> that, and the toggle covers the other setup.
+
+### Persisted selection (commit `825d501`)
+
+The selected item's URL is remembered per section per instance in the state
+file, and restored on the next launch (the section re-selects that URL once its
+first fetch lands). Saved on every selection change.
+
+A refresh rebuilds each section from scratch (fresh table, cursor 0). Each
+`FetchAllSections` (PRs, issues, notifications) carries the old rows over **and
+places the cursor immediately** — not only when the fetch lands — otherwise the
+list flashes to the top row (or blanks, for issues, which didn't carry rows at
+all) for the duration of the fetch, and a keypress in that window acts on the
+wrong item. The pending-selection URL stays armed to re-pin the cursor after the
+fresh (possibly reordered) data arrives.
+
+### `defaults.mergeQueueRepos` — `m` drives the native merge queue
+
+On a repo with a merge queue but **"Allow auto-merge" disabled**, upstream's `m`
+(which runs `gh pr merge`) fails: GitHub routes queue-add through the
+`enablePullRequestAutoMerge` mutation, which that setting rejects
+(`Auto merge is not allowed for this repository`).
+
+List such a repo under `defaults.mergeQueueRepos` (`"owner/name"`, or `"*"` for
+all) and `m` instead toggles the **native** merge queue — the same path as the
+web "Merge when ready" button, needing no extra permission:
+
+```yaml
+defaults:
+  mergeQueueRepos:
+    - your-org/your-repo
+```
+
+- PR not queued → `m` runs `enqueuePullRequest(input:{pullRequestId})`.
+- PR already queued → `m` runs `dequeuePullRequest(input:{id})` (note the
+  asymmetric input field — enqueue takes `pullRequestId`, dequeue takes `id`).
+- The queued state shows as the merge-queue icon in the row (`IsInMergeQueue`,
+  flipped optimistically and confirmed on the next fetch).
+
+List **only** repos that actually have a merge queue — enqueue errors on a repo
+without one. Scope is every `m` that acts on a PR: the PRs view (list + its
+sidebar) and the notifications PR-preview. Failures now surface gh's real error
+in the footer (fork also made `fireTask` capture stderr).
+
+**Showing queued state in the list.** The queue icon wasn't triggering from the
+list's `search` fetch — `isInMergeQueue` read `false` on PRs that were queued —
+so the list is **enriched** after each fetch from the authoritative
+`repository.mergeQueue.entries`, scoped to `mergeQueueRepos`: one extra query per
+distinct (repo, base branch) present, so an `org:` tab doesn't fan out.
+`data/mergequeue.go`.
+
+**Why, exactly, is not settled** (re-measured 2026-08-14). This was originally
+written up as "search doesn't populate the expensive computed field, the same way
+`mergeStateStatus` comes back `UNKNOWN`". That explanation does not hold:
+
+- The field has been in the search query since upstream `484b93e` (Jan 2026), so
+  it was never a matter of not asking for it.
+- Search now returns it **correctly** — repo-scoped and with an `org:` filter,
+  agreeing with `mergeQueue.entries` and with a direct `resource(url:)` read.
+  Reading the queue before *and* after each search (so churn can't fake a
+  mismatch): zero misses, zero false positives.
+- `mergeStateStatus` isn't uniformly `UNKNOWN` in search either — 36 of 40
+  resolved; the `UNKNOWN`s were the queued PRs, whose mergeability is being
+  recomputed.
+
+The live hypothesis is **lag**: search may report `false` for the first seconds
+after an enqueue, which is exactly when you look for the icon. That would make
+the enrichment a fix for a real but narrower problem. Untested — it needs an
+enqueue to observe.
+
+**So keep the enrichment.** It's one query per section per refetch, authoritative
+and lag-free; removing it buys that query back and risks re-introducing a bug
+that can't be reproduced on demand. If it ever does come out, note that
+`EnrichMergeQueueStatus` only ever sets `true` and never clears it, so a stale
+`true` from search would stick until the next fetch (not observed).
+
+### `defaults.mergeMethod` — merge without the per-PR prompts
+
+On a repo **without** a merge queue, `m` runs `gh pr merge`. With no merge-method
+flag, gh is interactive: it asks which strategy, then asks again to submit — for
+every single PR. Passing `--squash` / `--merge` / `--rebase` is exactly what
+turns that off (gh only enters interactive mode when no method flag is given).
+
+GitHub exposes **no per-repo default merge method** — the API only says which
+methods are *allowed* — so there's nothing to auto-detect unless a repo permits
+exactly one. The strategy therefore comes from, in order:
+
+1. `defaults.mergeMethodRepos["owner/name"]` — per-repo override
+2. `defaults.mergeMethod` — global default
+3. the choice **remembered** from the last successful merge of that repo
+4. otherwise `m` asks once — `(s)quash / (m)erge commit / (r)ebase` — and the
+   answer is remembered
+
+```yaml
+defaults:
+  mergeMethod: squash
+  mergeMethodRepos:
+    your-org/some-repo: rebase
+```
+
+The memory lives in `$XDG_STATE_HOME/gh-dash/prefs.json`, keyed by **repo, not by
+dashboard instance** (`internal/prefs`) — how a repo merges is a property of the
+repo, so every window on the machine agrees. It's written **only after a merge
+succeeds**, so a strategy the repo forbids is never learned. Contrast
+`layoutstate.go`, whose keys are per-instance because layout/selection are
+per-window.
+
+Once a strategy is resolved the merge runs as a normal background task (no TUI
+suspend, and gh's real error surfaces in the footer) instead of the interactive
+`ExecProcess` path — which remains as the fallback when no strategy can be
+resolved without asking.
+
+**The notifications PR-preview resolves identically.** Whether a repo uses a
+merge queue, and which strategy it merges with, are facts about the *repo*, not
+about the pane the key was pressed in, so `m` on a PR previewed from a
+notification reaches the same `mergeAction` resolution and the same tasks
+(`notificationMergeAction` in `ui.go`). The prompt names what will actually
+happen — "Add PR #123 to the merge queue?", "Squash and merge PR #123?" — rather
+than always saying "merge". One difference: that view's confirmation accepts only
+`y`/`N` (or the repeated opening key), with no merge-method picker, so step 4
+above has nowhere to be answered and degrades to gh's interactive merge instead.
+
+This needed two fields added to `EnrichedPullRequestData` — the notification's PR
+is fetched by `resource(url:)` and then converted by `ToPullRequestData`, which
+carried neither the **node id** (enqueue/dequeue address the PR by it, so an
+empty one mutates nothing) nor **`isInMergeQueue`** (without it `m` could only
+ever enqueue, never dequeue). Unlike search, `resource(url:)` does compute
+`isInMergeQueue`, verified against a live queued PR.
+
+### `defaults.showMergedFor` — keep recently-merged PRs visible
+
+A PR filtered by `is:open` vanishes the instant it merges (e.g. through the
+queue). Set `defaults.showMergedFor` (a Go duration like `"1h"`; empty/`"0"` =
+off) and each PR section runs a **second** search — the section's filter with
+`is:open`→`is:merged` plus `merged:>=<now-window>` — and appends the results
+(they render with the merged icon). Global default, overridable per section:
+
+```yaml
+defaults:
+  showMergedFor: "1h"
+prSections:
+  - title: All (org)
+    showMergedFor: "30m"
+```
+
+Fetched only on the first page (not while paginating). `MergedSinceQuery` in
+`data/mergequeue.go`; wired in the PR section's fetch.
+
+**Ordered newest-merge-first.** Search returns results in the *filter's* sort order
+— with `sort:created-desc` in the filter, a PR opened days ago and merged a minute
+ago comes back below one opened today and merged yesterday (gh-dash's own appended
+`sort:updated` loses to the filter's token). The merged block is therefore sorted
+explicitly by `mergedAt` descending (`SortByMergedAtDesc`), which needed `mergedAt`
+added to `PullRequestData`. Merged PRs still sit *after* the open ones.
+
+**`M` toggles them.** Instance-persistent (`layout.json`, keyed like the divider
+and selection — one window hiding them doesn't affect another). Hiding drops them
+from the loaded rows immediately and **skips the extra search** on subsequent
+fetches; showing triggers a refetch, since while hidden the query never ran. The
+filtering happens on the section's data, not in `BuildRows`, because the table
+cursor indexes `Prs` directly — hiding at render time would leave the cursor
+pointing at a different PR than the highlighted one.
+
+### Confirmations take one keystroke
+
+`(y/N)` prompts resolve on a single key — no Enter. `y`/`Y` accepts, `n`/`N`/`esc`
+cancels, and **repeating the key that opened the prompt accepts**: press `m` to
+merge, `m` again to go through with it. That works for any action because the
+opening key is recorded when the prompt opens (`SetPromptConfirmationKey`) rather
+than derived from the action name — the bindings are user-rebindable.
+
+Applies to the PR, issue, notification, and branch sections plus the notifications
+sidebar. Typed-then-Enter still works, and an empty Enter cancels (the prompt says
+`(y/N)`). **Text-entry prompts are excluded** — a branch name, a PR title, and the
+merge-method picker (`TextEntryPromptActions`), where a keystroke is a character,
+not an answer. The picker resolves on its own single letter (`s`/`m`/`r`) instead.
+
+## Instances
+
+An **instance** scopes persisted state (layout height + selection). Identity:
+
+```
+--instance <file>   use that config file
+--instance <dir>    use <dir>/.gh-dash/config.yml (created if missing)
+--instance .        use $PWD/.gh-dash/config.yml (created if missing)
+(none) + local      use $PWD/.gh-dash/config.yml if it already exists
+(none)              global config; state keyed implicitly by the launch directory
+```
+
+So **two dashboards launched from different directories are automatically
+distinct instances** — different layouts, different remembered selections —
+without naming them. `--instance .` bootstraps a hidden `./.gh-dash/config.yml`
+(seeded template) so a directory can have its own filters/tabs too. The instance
+name is synthetic: the project directory name plus a hash of the config path
+(e.g. `work-592fa798`). `GH_DASH_INSTANCE=<name>` still works as an explicit
+override.
+
+State lives in `$XDG_STATE_HOME/gh-dash/layout.json` (else `~/.local/state/…`),
+keyed by instance; `ghd` launches from `~`, so all ghd windows share the `~`
+instance unless launched elsewhere or given `--instance`.
+
+## How selection and clicking coexist
+
+The moment a program enables mouse reporting, the terminal hands drag events to
+the program and **stops drawing its own selection**. That's why highlight-to-copy
+appeared impossible alongside click-to-open.
+
+It isn't. The program receives *press*, *motion* and *release* — enough to tell a
+click from a drag, and enough to draw the selection itself. gh-dash now does:
+
+- **press** arms a maybe-drag; nothing happens yet
+- **motion while held** → it's a drag; extend and reverse-video the span
+- **release with no motion** → it was a click; open the PR
+- **release after motion** → copy the selected text
+
+The selection is drawn by the app, so it only covers the **visible frame** — it
+can't reach into the terminal's scrollback. For that (or to select across the
+whole window at once) you still have the terminal's own selection:
+
+1. Hold **⌥ Option** while dragging → bypasses mouse capture entirely.
+2. Press **`y`** / **`Y`** → copy the PR number / URL.
+3. Set `mouseMode: none` and restart → the terminal owns the mouse again, and
+   clicking stops.
+
+## Implementation notes (the parts that are easy to get wrong)
+
+- **Row zones are marked OUTSIDE the row style.** That style applies
+  `MaxWidth()`, which truncates. A zone marker sliced in half is never scanned
+  back out.
+- **Tab titles are marked BEFORE the carousel**, which runs `lipgloss.Width()`
+  and `ansi.Truncate()` over them. This is only safe because bubblezone's
+  markers are private CSI sequences (`\x1B[<n>z`) that both treat as zero-width.
+  That's a property of a third-party library, so
+  `TestMouseZones_TabSurvivesCarouselTruncation` pins it.
+- **`common.MarkZone()` tolerates a nil global manager.** `zone.Mark` panics if
+  `zone.NewGlobal()` was never called. Marking happens during render, and render
+  happens in tests and headless snapshots where the program never ran. It
+  degrades to the unmarked string — an unclickable zone is correct when there is
+  no mouse.
+- **`zone.Scan()` is asynchronous.** It hands zones to a worker goroutine over a
+  channel, so `zone.Get()` is not populated the instant `Scan()` returns. Tests
+  must poll. In the running TUI this is invisible (frames redraw constantly).
+- **`listviewport.SetCurrItem()` walks via `Next/PrevItem`** rather than
+  recomputing scroll bounds, keeping `topBoundId`/`bottomBoundId`/viewport offset
+  consistent. The walk is bounded by the visible rows, so it's cheap.
+- **`highlightFrame()` strips the selected span before reversing it.** An SGR
+  reset nested inside the span would otherwise cancel the reverse attribute
+  partway through. Stripping removes only zero-width escapes, so cell widths —
+  and the layout — are unchanged. `TestHighlightFrame_PreservesTextAndWidth`
+  pins that, because a layout that shifts mid-drag is unusable.
+- **`frameBuf` is a `*string`.** `View()` has a value receiver and can't write to
+  the model, but a drag-release needs the exact frame that was highlighted.
+- **`copyToClipboard` is a package var**, so tests don't scribble on the real
+  clipboard.
+
+### Known limitations
+
+- A row only **half-scrolled** into view can have one of its two bubblezone
+  markers clipped, so its zone may not register until the row is fully visible.
+  Clicking it is a no-op; scroll one line and it works.
+- The drag-selection is **drawn by the app**, so it covers only the visible
+  frame — it cannot reach into the terminal's scrollback. Use ⌥-drag for that.
+- A drag **copies on release**, with no separate ⌘C step. That's deliberate
+  (there's no way to intercept ⌘C), but it does mean a drag overwrites the
+  clipboard.
+
+---
+
+## Known-good version labels
+
+Local annotated tags, never pushed. The logo shows the current one (via
+`git describe`, baked in at build time). To roll back to one:
+
+```bash
+git -C ~/code/gh-dash checkout v4.25.0-local.1
+~/code/gh-dash/tooling/build.sh
+```
+
+| tag | contents |
+| --- | --- |
+| `v4.25.0-local.1` | mouseMode config, clickable tabs/rows, wheel, drag-select + click-to-open, non-git-repo startup fix |
+| `v4.25.0-local.2` | + double-click/number-to-open, clickable icons + footer + preview tabs, draggable & persisted divider, help-toggle fix, sloppy-click drag threshold, prior-row-clear fix, injectable version string |
+| `v4.25.0-local.3`–`.8` | urlOpenCommand + fast Chrome-profile open (window-id cache), sub-minute refetch, per-instance state, persisted selection across restarts, mouse-wheel direction, startup browser pre-warm (cold-cache-only) |
+| `v4.25.0-local.10` | footer stays visible when the divider is dragged high + help expanded (reserve the list's minimum height) |
+| `v4.25.0-local.11` | `defaults.mergeQueueRepos`: `m` toggles the native merge queue (enqueue/dequeue) on listed repos; `fireTask` surfaces gh's real stderr |
+| `v4.25.0-local.12` | `open-url.sh` focuses the window that opened the link (id reference + set-index-after-activate), not the previously-focused one |
+| `v4.25.0-local.13` | `open-url.sh` reuses a tab already on the URL (incl. sub-pages/anchors) instead of opening a duplicate |
+| `v4.25.0-local.14` | `open-url.sh` skips the raise when the target is already Chrome's front window — no more surfacing other-profile windows |
+| `v4.25.0-local.15` | refresh no longer flashes the PR-list cursor to the top before restoring the selection (place the cursor in `FetchAllSections`) |
+| `v4.25.0-local.16` | same refresh smoothing for the issues + notifications lists (issues also no longer blanks mid-refresh) |
+| `v4.25.0-local.17` | show merge-queue state in the list (enrich from `mergeQueue.entries`, since search omits it) + `defaults.showMergedFor` to keep recently-merged PRs |
+| `v4.25.0-local.18` | `defaults.mergeMethod` (+ per-repo overrides, + remembered-per-repo answer) so `m` merges without gh's per-PR method/submit prompts |
+| `v4.25.0-local.19` | merged PRs ordered newest-merge-first; `M` toggles them (instance-persistent); y/N confirmations take one keystroke, and repeating the opening key confirms |
+| `v4.25.0-local.20` | dragging the divider to the bottom stops above the status bar instead of hiding it (the preview has a minimum renderable height too) |
+| `v4.25.0-local.21` | the divider goes one further: the preview collapses to just its divider line (title + pager hidden), still stopping above the status bar |
+
+Remember: the checkout **is** the installed extension, so rebuild after any
+`git checkout` or `gh dash` serves a stale binary.
+
+### The version string in the logo
+
+The logo shows `git describe --tags` (e.g. `v4.25.0-local.2`), injected at build
+time via `-ldflags -X …/internal/tui.Version=…`. **This is why you build through
+`tooling/build.sh`** — a bare `go build` has no version to inject and the logo
+falls back to "dev". The "Update available!" nag is suppressed for local builds
+(a fork is always ahead of the upstream tag, so the nag would be permanent and
+misleading).
+
+## `tooling/` — where the setup lives
+
+All the reproducible setup for this fork lives in `tooling/` (next to this file):
+
+| file | what it does |
+| --- | --- |
+| `setup.sh` | run everything, idempotent: build → install extension → font/profile/launcher → link `ghd-repo` |
+| `build.sh` | build the binary with the git-describe version baked into the logo |
+| `setup-terminal.sh` | macOS: Nerd Font + `gh-dash` Terminal profile + `ghd` launcher |
+| `ghd.zsh` | the `ghd` launcher function (sourced from `~/.zshrc`) |
+| `ghd-repo.py` | manage the per-repo tabs in `config.yml` (symlinked to `~/.bin/ghd-repo`) |
+| `open-url.sh` | fast-open a URL in a specific Chrome profile (window-id cache); used by `urlOpenCommand` |
+| `FORK_NOTES.md` | this file |
+
+> Why `tooling/` and not `docs/`? Upstream's `docs/` is the Starlight source for
+> the gh-dash.dev **website** (astro, pnpm, its own Dockerfile) — not a general
+> docs folder. Dropping fork notes there would pollute a directory the maintainer
+> ships from, so everything custom is namespaced under `tooling/` instead.
+
+### Reproduce from scratch
+
+```bash
+git clone <your-fork> ~/code/gh-dash && cd ~/code/gh-dash
+git remote add upstream https://github.com/dlvhdr/gh-dash.git
+./tooling/setup.sh          # build, install, font/profile/launcher, ghd-repo
+```
+
+## Build / install
+
+The fork directory **is** the installed extension (gh symlinks to it):
+
+```
+~/.local/share/gh/extensions/gh-dash -> ~/code/gh-dash
+```
+
+```bash
+# build (bakes the git-describe version into the logo; derives repo from its path)
+~/code/gh-dash/tooling/build.sh
+
+# install — `.` is MANDATORY; gh rejects absolute paths for local extensions,
+# and the binary must already exist and be named after the repo.
+cd ~/code/gh-dash && gh extension install .
+```
+
+**The footgun:** because the checkout *is* the extension, `git checkout` to
+another branch without rebuilding leaves `gh dash` running a stale binary.
+Rebuild after every branch switch or upstream pull.
+
+### The release ritual
+
+Every version goes through all five steps, in order. Skipping the last one is
+the classic failure: the binary on disk is new and every window is still running
+the old one.
+
+```bash
+git add -A internal/ tooling/FORK_NOTES.md
+git commit -F -                                  # heredoc, not -m
+git tag v4.25.0-local.N
+git push origin main:mouse-nav-and-ux v4.25.0-local.N   # branch AND tag together
+bash tooling/build.sh                            # writes the very inode gh serves
+bash tooling/restart.sh                          # quits + relaunches every instance
+```
+
+`restart.sh` is the half that used to live only in chat history, which is exactly
+how it got skipped: `build.sh` was versioned, the restart was retyped from memory
+each time. It matches Terminal tabs on the exact tty, refuses any tab running
+`claude`, relaunches, re-pins the Nerd Font profile, and then **proves** the
+result by requiring every surviving pid to have started after the binary's mtime
+— exiting non-zero if any is stale or unreachable. `strings` on the path says
+nothing about a running process; only the start time does.
+
+Two AppleScript traps it encodes, both of which have burned a session:
+
+- **Never address a tab as `index of t`.** Terminal's tab class has no `index`
+  property. Inside a `try`, that error silently skips the very tab being matched,
+  and the script cheerfully reports "tab not found".
+- **Quit and relaunch are separate `osascript` calls** with a shell `sleep`
+  between them, not one script with an AppleScript `delay`.
+
+A gh-dash inside an abduco/dtach-style detached pane is not a Terminal tab and
+cannot be restarted this way (see Known limitations); the script lists those
+separately so they get a manual `q` + `ghd`.
+
+`.claude/settings.json` allow-lists both scripts so the release never stalls on a
+permission classifier mid-ritual.
+
+### Sync with upstream
+
+```bash
+git -C ~/code/gh-dash fetch upstream
+git -C ~/code/gh-dash rebase upstream/main
+~/code/gh-dash/tooling/build.sh
+```
+
+No reinstall needed — it's a symlink.
+
+### Downgrade protection
+
+Local extensions are immune to `gh extension upgrade`:
+
+```
+$ gh extension upgrade --all   →  [dash]: local extensions can not be upgraded
+```
+
+So a routine `gh extension upgrade --all` cannot silently revert you to upstream.
+gh-dash was never brew-installed, so brew has nothing to reconcile.
+
+### Revert to upstream
+
+```bash
+gh extension remove dash && gh extension install dlvhdr/gh-dash
+```
+
+---
+
+## Surrounding setup (macOS / Terminal.app)
+
+### Fonts + profile + launcher — `tooling/setup-terminal.sh`
+
+gh-dash draws its state icons with **Nerd Font** glyphs. Terminal.app has no
+glyph fallback — it can only draw glyphs present in the one selected font — so
+the `?` tofu boxes mean "wrong font", never "broken config".
+
+`tooling/setup-terminal.sh` does all three, idempotently:
+
+1. `brew install --cask font-meslo-lg-nerd-font`
+2. creates a `gh-dash` Terminal profile (via AppleScript — `make new settings
+   set` + set font) using **`MesloLGSDZNFM-Regular`**
+3. wires the `ghd` launcher into `~/.zshrc`
+
+Terminal stores fonts by **PostScript** name, not the family name in the font
+panel. `MesloLGSDZNFM-Regular` = *MesloLGSDZ Nerd Font **Mono***. The `Mono` face
+matters: the non-Mono `MesloLGSDZNF-Regular` renders icons double-width and
+misaligns the columns.
+
+### `ghd` — launch into the Nerd Font profile
+
+`tooling/ghd.zsh`, sourced from `~/.zshrc`. Focuses an open gh-dash window if
+there is one, else opens a new one, always pinned to the `gh-dash` Terminal
+profile. Fails loudly if that profile is missing.
+
+Terminal binds fonts to **profiles**, not windows — a per-window font means a
+one-off profile applied to just that window.
+
+### `ghd-repo` — manage per-repo tabs
+
+`~/.bin/ghd-repo` → `tooling/ghd-repo.py`
+
+```bash
+ghd-repo ls
+ghd-repo add deploys      # bare or Org/deploys
+ghd-repo rm  deploys
+ghd-repo sync             # regenerate tabs from the All (org) filter
+```
+
+The **`All (org)` filter line is the single source of truth**. Every per-repo tab
+is generated from it, so changing the window/sort/author means editing one line
+then running `sync`. Writes a `.bak`, validates the YAML, restores on failure.
+
+### Filters
+
+- **Ad-hoc:** press **`/`** inside gh dash — the search bar opens pre-filled with
+  the current tab's filter. Edit, Enter, refetch. No restart.
+- **Persistent:** `~/.config/gh-dash/config.yml`. There is **no hot reload** —
+  press `q`, then `ghd`.
+
+### Approve / merge queue
+
+If your repo has GitHub's native merge queue enabled, the built-in `m` uses it:
+
+- `v` → approve
+- `m` → `gh pr merge` → **adds to the merge queue** when checks have passed
+- direct merge needs `--admin`, which bypasses the queue and required checks
+
+A one-keystroke `--admin` merge is deliberately **not** bound. On any repo where
+merges should always be a deliberate human action, that's a footgun. Add it
+yourself if you want it:
+
+```yaml
+keybindings:
+  prs:
+    - key: M
+      command: gh pr merge --admin --repo {{.RepoName}} {{.PrNumber}}
+```
+
+### Editor warning
+
+`mouseMode` is a fork-only key. The `yaml-language-server` schema is fetched from
+upstream `gh-dash.dev`, which doesn't know it, so your editor may squiggle it.
+Harmless.
+
+---
+
+## Keys worth remembering
+
+| gesture | action |
+| --- | --- |
+| click a row | select it (nothing opens) |
+| double-click a row | open the PR |
+| click `#1234` | open the PR |
+| click CI / review / comments icon | open `/checks` / `/files` / conversation |
+| click a section tab | switch section |
+| click footer PRs/Issues/Notifications | switch view |
+| click footer `? help` | toggle full help |
+| click a preview tab | switch detail tab (Overview/Commits/Checks/…) |
+| drag | highlight text; copies on release |
+| drag the divider | resize the preview (remembered across runs) |
+| ⌥-drag | terminal's own selection (reaches scrollback) |
+| wheel | move the row selection |
+
+| key | action |
+| --- | --- |
+| `/` | edit the current tab's filter, live |
+| `←/h` `→/l` | previous / next tab |
+| `↑/k` `↓/j` | move the selection |
+| `o` | open on GitHub |
+| `y` / `Y` | copy PR number / URL |
+| `v` | approve |
+| `m` | merge (→ merge queue) |
+| `r` / `R` | refresh this tab / all tabs |
+| `?` | full key map |

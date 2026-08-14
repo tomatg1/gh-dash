@@ -9,8 +9,23 @@ import (
 )
 
 var (
-	HeaderHeight       = 2
-	SearchHeight       = 3
+	HeaderHeight = 2
+	SearchHeight = 3
+	// MinListHeight is the fewest rows the list section can render: its search
+	// box (SearchHeight) plus the table's header (TableHeaderHeight) and one
+	// empty/loading row with its margin. Budgeting the list less than this does
+	// not shrink it -- the section overflows its allotment and shoves the footer
+	// (and the "? help" toggle) off the bottom of the screen. The layout must
+	// never size the list below this floor. (Measured against the styled render;
+	// see TestFooter_StaysVisibleWithHighSeparatorAndHelp.)
+	MinListHeight = SearchHeight + TableHeaderHeight + 2
+	// MinPreviewHeight is the fewest CONTENT rows the bottom preview may be given.
+	// Zero is allowed and is the end of the divider's downward travel: the pane
+	// collapses to just its top border -- the divider line itself -- hiding the
+	// preview's title and scroll pager while still stopping above the status bar.
+	// The pane must never render more rows than it is budgeted (see the sidebar's
+	// bottom-mode View), or the surplus pushes the status bar off the screen.
+	MinPreviewHeight   = 0
 	FooterHeight       = 1
 	ExpandedHelpHeight = 17
 	InputBoxHeight     = 8

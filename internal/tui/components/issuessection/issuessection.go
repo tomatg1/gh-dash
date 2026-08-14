@@ -78,6 +78,16 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		}
 
 		if m.IsPromptConfirmationFocused() {
+			// y/N confirmations resolve on one keystroke — including a repeat of
+			// the key that opened them. Text-entry prompts fall through to the
+			// input and still need Enter.
+			switch m.DecideConfirmKey(msg.String()) {
+			case section.ConfirmAccept:
+				return m, m.closePrompt(m.runConfirmedAction(m.GetPromptConfirmationAction()))
+			case section.ConfirmCancel:
+				return m, m.closePrompt(nil)
+			}
+
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				m.PromptConfirmationBox.Reset()
@@ -163,6 +173,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.SetIsLoading(false)
 			m.PageInfo = &msg.PageInfo
 			m.Table.SetRows(m.BuildRows())
+			m.restoreSelection()
 			m.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 		}
@@ -288,6 +299,16 @@ func (m *Model) GetCurrRow() data.RowData {
 	return &issue
 }
 
+// restoreSelection re-selects, by URL, whatever was selected before a refresh
+// rebuilt this section.
+func (m *Model) restoreSelection() {
+	urls := make([]string, len(m.Issues))
+	for i := range m.Issues {
+		urls[i] = m.Issues[i].GetUrl()
+	}
+	m.RestoreSelection(urls)
+}
+
 func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 	if m == nil {
 		return nil
@@ -361,6 +382,7 @@ func (m *Model) ResetRows() {
 
 func FetchAllSections(
 	ctx *context.ProgramContext,
+	issues []section.Section,
 ) (sections []section.Section, fetchAllCmd tea.Cmd) {
 	sectionConfigs := ctx.Config.IssuesSections
 	fetchIssuesCmds := make([]tea.Cmd, 0, len(sectionConfigs))
@@ -375,6 +397,21 @@ func FetchAllSections(
 		) // 0 is the search section
 		if sectionConfig.Layout.CreatorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.CreatorIcon.Hidden
+		}
+		// Carry the old rows AND cursor across the refresh so the list doesn't
+		// blank (then flash the cursor to the top) while the fetch is in flight.
+		// The pending-selection URL stays armed so the cursor is re-pinned once
+		// the fresh, possibly reordered data lands.
+		if i+1 < len(issues) && issues[i+1] != nil {
+			if old, ok := issues[i+1].(*Model); ok {
+				sectionModel.Issues = old.Issues
+				sectionModel.LastFetchTaskId = old.LastFetchTaskId
+				if r := old.GetCurrRow(); r != nil {
+					sectionModel.SetPendingSelection(r.GetUrl())
+				}
+				sectionModel.Table.SetRows(sectionModel.BuildRows())
+				sectionModel.Table.SetCurrItem(old.Table.GetCurrItem())
+			}
 		}
 		sections = append(sections, &sectionModel)
 		fetchIssuesCmds = append(
@@ -455,4 +492,30 @@ func (m Model) GetPagerContent() string {
 	}
 	pager := m.Ctx.Styles.ListViewPort.PagerStyle.Render(pagerContent)
 	return pager
+}
+
+// closePrompt dismisses the confirmation prompt, batching whatever the answer
+// kicked off with the blink command.
+func (m *Model) closePrompt(cmd tea.Cmd) tea.Cmd {
+	m.PromptConfirmationBox.Reset()
+
+	return tea.Batch(cmd, m.SetIsPromptConfirmationShown(false))
+}
+
+// runConfirmedAction performs the action the prompt was confirming.
+func (m *Model) runConfirmedAction(action string) tea.Cmd {
+	issue := m.GetCurrRow()
+	if issue == nil {
+		return nil
+	}
+	sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
+
+	switch action {
+	case "close":
+		return tasks.CloseIssue(m.Ctx, sid, issue)
+	case "reopen":
+		return tasks.ReopenIssue(m.Ctx, sid, issue)
+	}
+
+	return nil
 }

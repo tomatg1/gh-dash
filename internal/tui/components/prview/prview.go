@@ -44,9 +44,32 @@ type Model struct {
 
 var tabs = []string{" Overview", " Activity", " Commits", " Checks", " Files Changed"}
 
+// TabZoneID names the clickable region for preview tab i. Defined here so the
+// renderer that marks the zone and the click handler that reads it can't drift.
+func TabZoneID(i int) string {
+	return fmt.Sprintf("prview-tab-%d", i)
+}
+
+// NumTabs is the number of preview tabs.
+func NumTabs() int {
+	return len(tabs)
+}
+
+// markedTabs wraps each tab label in its bubblezone zone so it can be clicked.
+// The switch that dispatches the body is keyed on the carousel *cursor*, not on
+// these strings, so embedding zone markers here cannot affect which tab renders.
+func markedTabs() []string {
+	out := make([]string, len(tabs))
+	for i, t := range tabs {
+		out[i] = common.MarkZone(TabZoneID(i), t)
+	}
+
+	return out
+}
+
 func NewModel(ctx *context.ProgramContext) Model {
 	c := carousel.New(
-		carousel.WithItems(tabs),
+		carousel.WithItems(markedTabs()),
 		carousel.WithWidth(ctx.MainContentWidth),
 	)
 
@@ -132,19 +155,21 @@ func (m Model) View() string {
 		return ""
 	}
 
+	// Keyed on the cursor index, not the item string: the items carry zone
+	// markers now, so a string compare against the raw labels would never match.
 	body := strings.Builder{}
-	switch m.carousel.SelectedItem() {
-	case tabs[0]:
+	switch m.carousel.Cursor() {
+	case 0:
 		body.WriteString(m.viewOverviewTab())
-	case tabs[1]:
+	case 1:
 		body.WriteString(m.renderActivity())
-	case tabs[2]:
+	case 2:
 		body.WriteString(m.renderCommits())
-	case tabs[3]:
+	case 3:
 		body.WriteString(m.renderChecksOverview())
 		body.WriteString("\n\n")
 		body.WriteString(m.renderChecks())
-	case tabs[4]:
+	case 4:
 		body.WriteString(m.renderChangedFiles())
 	}
 
@@ -758,7 +783,22 @@ func (m *Model) GoToActivityTab() {
 }
 
 func (m Model) SelectedTab() string {
-	return m.carousel.SelectedItem()
+	i := m.carousel.Cursor()
+	if i < 0 || i >= len(tabs) {
+		return ""
+	}
+
+	return tabs[i] // the clean label, without the zone marker
+}
+
+// SetTabIdx selects preview tab i directly, e.g. from a mouse click.
+func (m *Model) SetTabIdx(i int) {
+	m.carousel.SetCursor(i)
+}
+
+// SelectedTabIdx is the index of the active preview tab.
+func (m Model) SelectedTabIdx() int {
+	return m.carousel.Cursor()
 }
 
 func (m *Model) SetSummaryViewMore() {
