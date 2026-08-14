@@ -78,3 +78,22 @@ func TestSetClient(t *testing.T) {
 		require.True(t, IsEnrichmentCacheCleared())
 	})
 }
+
+// A PR previewed from a notification is fetched whole (resource(url:), which
+// unlike search computes isInMergeQueue) and then converted for display. The
+// merge-queue actions run off that converted copy: enqueue/dequeue address the PR
+// by node id, and which of the two `m` means depends on the queue state. Drop
+// either in the conversion and the notifications preview mutates nothing (empty
+// id) or can only ever add to the queue.
+func TestToPullRequestData_KeepsWhatTheMergeQueueActionsNeed(t *testing.T) {
+	enriched := EnrichedPullRequestData{
+		Number:         7970,
+		Id:             "PR_kwDOO-ojmc7-0y3Q",
+		IsInMergeQueue: true,
+	}
+
+	pr := enriched.ToPullRequestData()
+
+	require.Equal(t, "PR_kwDOO-ojmc7-0y3Q", pr.Id, "enqueue/dequeue address the PR by node id")
+	require.True(t, pr.IsInMergeQueue, "queue state decides whether `m` enqueues or dequeues")
+}

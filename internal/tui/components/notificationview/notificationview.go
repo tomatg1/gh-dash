@@ -86,13 +86,32 @@ func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
 }
 
 // SetPendingPRAction sets a pending PR action and returns the confirmation prompt.
-// action is one of: "close", "reopen", "ready", "merge", "update"
+// action is one of: "close", "reopen", "ready", "merge", "merge_squash",
+// "merge_merge", "merge_rebase", "enqueue", "dequeue", "update",
+// "approveWorkflows".
 // Returns empty string if no subject PR is set.
 func (m *Model) SetPendingPRAction(action string) string {
 	if m.subjectPR == nil {
 		return ""
 	}
 	m.pendingAction = "pr_" + action
+	number := m.subjectPR.GetNumber()
+
+	// The merge-queue and per-strategy actions don't fit the "are you sure you
+	// want to <verb>" frame; they're worded as the PRs view words them, so the
+	// same key reads the same whichever pane it's pressed in.
+	switch action {
+	case "enqueue":
+		return fmt.Sprintf("Add PR #%d to the merge queue? (y/N)", number)
+	case "dequeue":
+		return fmt.Sprintf("Remove PR #%d from the merge queue? (y/N)", number)
+	case "merge_squash":
+		return fmt.Sprintf("Squash and merge PR #%d? (y/N)", number)
+	case "merge_merge":
+		return fmt.Sprintf("Merge PR #%d with a merge commit? (y/N)", number)
+	case "merge_rebase":
+		return fmt.Sprintf("Rebase and merge PR #%d? (y/N)", number)
+	}
 
 	actionDisplay := action
 	switch action {
@@ -101,11 +120,7 @@ func (m *Model) SetPendingPRAction(action string) string {
 	case "approveWorkflows":
 		actionDisplay = "approve all workflows for"
 	}
-	return fmt.Sprintf(
-		"Are you sure you want to %s PR #%d? (y/N)",
-		actionDisplay,
-		m.subjectPR.GetNumber(),
-	)
+	return fmt.Sprintf("Are you sure you want to %s PR #%d? (y/N)", actionDisplay, number)
 }
 
 // SetPendingIssueAction sets a pending Issue action and returns the confirmation prompt.

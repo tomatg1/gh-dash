@@ -317,9 +317,9 @@ defaults:
   flipped optimistically and confirmed on the next fetch).
 
 List **only** repos that actually have a merge queue — enqueue errors on a repo
-without one. Scope is the PRs-view `m` (list + its sidebar); the notifications
-PR-preview still does a plain merge. Failures now surface gh's real error in the
-footer (fork also made `fireTask` capture stderr).
+without one. Scope is every `m` that acts on a PR: the PRs view (list + its
+sidebar) and the notifications PR-preview. Failures now surface gh's real error
+in the footer (fork also made `fireTask` capture stderr).
 
 **Showing queued state in the list.** The list is fetched via GitHub's `search`
 API, which does **not** populate `isInMergeQueue` (an expensive computed field —
@@ -362,7 +362,25 @@ per-window.
 
 Once a strategy is resolved the merge runs as a normal background task (no TUI
 suspend, and gh's real error surfaces in the footer) instead of the interactive
-`ExecProcess` path — which remains for the notifications PR-preview merge.
+`ExecProcess` path — which remains as the fallback when no strategy can be
+resolved without asking.
+
+**The notifications PR-preview resolves identically.** Whether a repo uses a
+merge queue, and which strategy it merges with, are facts about the *repo*, not
+about the pane the key was pressed in, so `m` on a PR previewed from a
+notification reaches the same `mergeAction` resolution and the same tasks
+(`notificationMergeAction` in `ui.go`). The prompt names what will actually
+happen — "Add PR #123 to the merge queue?", "Squash and merge PR #123?" — rather
+than always saying "merge". One difference: that view's confirmation accepts only
+`y`/`N` (or the repeated opening key), with no merge-method picker, so step 4
+above has nowhere to be answered and degrades to gh's interactive merge instead.
+
+This needed two fields added to `EnrichedPullRequestData` — the notification's PR
+is fetched by `resource(url:)` and then converted by `ToPullRequestData`, which
+carried neither the **node id** (enqueue/dequeue address the PR by it, so an
+empty one mutates nothing) nor **`isInMergeQueue`** (without it `m` could only
+ever enqueue, never dequeue). Unlike search, `resource(url:)` does compute
+`isInMergeQueue`, verified against a live queued PR.
 
 ### `defaults.showMergedFor` — keep recently-merged PRs visible
 

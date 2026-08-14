@@ -614,7 +614,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, cmd
 
 						case prview.PRActionMerge:
-							cmd = m.promptConfirmationForNotificationPR("merge", msg.String())
+							cmd = m.promptConfirmationForNotificationPR(
+								m.notificationMergeAction(), msg.String())
 							return m, cmd
 
 						case prview.PRActionUpdate:
@@ -1465,6 +1466,27 @@ func (m *Model) mergeAction(row data.RowData) string {
 	return "merge_method"
 }
 
+// notificationMergeAction resolves what `m` does for the PR previewed from a
+// notification, exactly as mergeAction resolves it in the PRs view -- whether a
+// repo uses a merge queue, and which strategy it merges with, are facts about the
+// repo, not about the pane the key was pressed in.
+//
+// The one difference: this view has no merge-method picker (its confirmation
+// accepts only y/N), so "ask which strategy" degrades to gh's own interactive
+// merge rather than a prompt nothing can answer.
+func (m *Model) notificationMergeAction() string {
+	pr := m.notificationView.GetSubjectPR()
+	if pr == nil {
+		return "merge"
+	}
+
+	if action := m.mergeAction(pr); action != "merge_method" {
+		return action
+	}
+
+	return "merge"
+}
+
 // toggleMergedVisibility flips the `M` toggle and persists it for this instance.
 //
 // Hiding drops merged PRs from the loaded rows immediately (no refetch — the data
@@ -2288,6 +2310,19 @@ func (m *Model) executeNotificationAction(action string) tea.Cmd {
 	case "pr_merge":
 		if pr != nil {
 			return tasks.MergePR(m.ctx, sid, pr)
+		}
+	case "pr_merge_squash", "pr_merge_merge", "pr_merge_rebase":
+		if pr != nil {
+			return tasks.MergePRWithMethod(
+				m.ctx, sid, pr, strings.TrimPrefix(action, "pr_merge_"))
+		}
+	case "pr_enqueue":
+		if pr != nil && pr.Primary != nil {
+			return tasks.EnqueuePR(m.ctx, sid, pr.Primary.Number, pr.Primary.Id)
+		}
+	case "pr_dequeue":
+		if pr != nil && pr.Primary != nil {
+			return tasks.DequeuePR(m.ctx, sid, pr.Primary.Number, pr.Primary.Id)
 		}
 	case "pr_update":
 		if pr != nil {
