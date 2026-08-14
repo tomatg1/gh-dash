@@ -11,10 +11,10 @@ import (
 func sec(f string) config.PrsSectionConfig { return config.PrsSectionConfig{Filters: f} }
 
 func TestFirstRepoPullsURL(t *testing.T) {
-	require.Equal(t, "https://github.com/AutonomousTechnologies/autonomous/pulls",
+	require.Equal(t, "https://github.com/acme/monorepo/pulls",
 		firstRepoPullsURL([]config.PrsSectionConfig{
-			sec("org:AutonomousTechnologies is:open author:@me"),
-			sec("repo:AutonomousTechnologies/autonomous is:open"),
+			sec("org:acme is:open author:@me"),
+			sec("repo:acme/monorepo is:open"),
 		}), "first repo across sections wins, even if an org section is first")
 
 	require.Equal(t, "https://github.com/orgs/acme/pulls",

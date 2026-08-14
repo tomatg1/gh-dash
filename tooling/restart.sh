@@ -11,10 +11,10 @@
 # running `claude` is refused outright, so this can never type into the session
 # that invoked it.
 #
-# Known limitation: a gh-dash living in a ControlDeck/abduco pane is not a
-# Terminal tab, so it can't be reached this way -- attaching a second abduco
-# client returns zero bytes (no repaint for a late joiner), so keystrokes are
-# blind. Those are reported at the end for a manual `q` + `ghd`.
+# Known limitation: a gh-dash living in an abduco/dtach-style detached pane is
+# not a Terminal tab, so it can't be reached this way -- attaching a second
+# abduco client returns zero bytes (no repaint for a late joiner), so keystrokes
+# are blind. Those are reported at the end for a manual `q` + `ghd`.
 set -uo pipefail
 
 BIN="$HOME/.local/share/gh/extensions/gh-dash/gh-dash"
@@ -22,7 +22,7 @@ BIN="$HOME/.local/share/gh/extensions/gh-dash/gh-dash"
 BIN_EPOCH="$(stat -f %m "$BIN")"
 echo "binary: $BIN ($(stat -f '%Sm' -t '%b %e %H:%M:%S' "$BIN"))"
 
-# tty per running instance, e.g. "ttys013". Instances with no controlling
+# tty per running instance, e.g. "ttys001". Instances with no controlling
 # terminal come back as "??" and are reported as unreachable.
 ttys="$(pgrep -x gh-dash | while read -r p; do ps -o tty= -p "$p" | tr -d ' '; done | sort -u)"
 [[ -n "$ttys" ]] || { echo "no gh-dash running; nothing to restart"; exit 0; }

@@ -8,7 +8,7 @@
 # repair that cache (e.g. after the window is closed).
 #
 # Usage:  open-url.sh "<profile-directory>" "<url>"
-#   e.g.  open-url.sh "Profile 3" "https://github.com/o/r/pull/1"
+#   e.g.  open-url.sh "Profile 1" "https://github.com/o/r/pull/1"
 set -euo pipefail
 
 PROFILE="${1:?profile-directory required}"

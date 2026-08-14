@@ -6,6 +6,12 @@ These notes describe local build tooling and conventions; paths assume a
 
 Upstream: `dlvhdr/gh-dash` (forked at v4.25.0, `49f37e4`).
 
+**Real values never live in this repo.** Org names, repo names, browser profiles
+and the rest belong in `~/.config/gh-dash/config.yml`, which gh-dash reads and
+never writes. Every YAML block below is an illustration using placeholders
+(`your-org/your-repo`, `Profile 1`) — substitute, don't copy. Same rule for
+fixtures: tests use `acme`, not a real organization, so the repo stays shareable.
+
 ---
 
 ## Why the fork exists
@@ -191,8 +197,8 @@ the wrong browser profile, signed in to the wrong GitHub account.
 defaults:
   # macOS: open in the Chrome profile already signed in to the right account.
   # Find the profile directory in ~/Library/Application Support/Google/Chrome
-  # (Default, Profile 1, Profile 3, …) — NOT the display name.
-  urlOpenCommand: '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --profile-directory="Profile 3" "{{.URL}}"'
+  # (Default, Profile 1, Profile 2, …) — NOT the display name.
+  urlOpenCommand: '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --profile-directory="Profile 1" "{{.URL}}"'
 ```
 
 Empty (the default) = unchanged OS-default-browser behavior. All PR-open paths
@@ -207,7 +213,7 @@ slow binary launch only to bootstrap/repair the cache. Point `urlOpenCommand` at
 it:
 
 ```yaml
-urlOpenCommand: '~/code/gh-dash/tooling/open-url.sh "Profile 3" "{{.URL}}"'
+urlOpenCommand: '~/code/gh-dash/tooling/open-url.sh "Profile 1" "{{.URL}}"'
 ```
 
 The window-id cache lives in `$XDG_STATE_HOME/gh-dash/chrome-window-<profile>`.
@@ -307,7 +313,7 @@ web "Merge when ready" button, needing no extra permission:
 ```yaml
 defaults:
   mergeQueueRepos:
-    - AutonomousTechnologies/autonomous
+    - your-org/your-repo
 ```
 
 - PR not queued → `m` runs `enqueuePullRequest(input:{pullRequestId})`.
@@ -374,7 +380,7 @@ exactly one. The strategy therefore comes from, in order:
 defaults:
   mergeMethod: squash
   mergeMethodRepos:
-    AutonomousTechnologies/some-repo: rebase
+    your-org/some-repo: rebase
 ```
 
 The memory lives in `$XDG_STATE_HOME/gh-dash/prefs.json`, keyed by **repo, not by
@@ -664,9 +670,9 @@ Two AppleScript traps it encodes, both of which have burned a session:
 - **Quit and relaunch are separate `osascript` calls** with a shell `sleep`
   between them, not one script with an AppleScript `delay`.
 
-A gh-dash in a ControlDeck/abduco pane is not a Terminal tab and cannot be
-restarted this way (see Known limitations); the script lists those separately so
-they get a manual `q` + `ghd`.
+A gh-dash inside an abduco/dtach-style detached pane is not a Terminal tab and
+cannot be restarted this way (see Known limitations); the script lists those
+separately so they get a manual `q` + `ghd`.
 
 `.claude/settings.json` allow-lists both scripts so the release never stalls on a
 permission classifier mid-ritual.

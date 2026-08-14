@@ -19,7 +19,7 @@ import (
 // and run via `sh -c`, so URLs can be routed to a specific browser or profile
 // (e.g. a Chrome profile already signed in to the right account):
 //
-//	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --profile-directory="Profile 3" "{{.URL}}"
+//	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --profile-directory="Profile 1" "{{.URL}}"
 //
 // When empty, the OS default browser is used (go-gh's browser).
 //
