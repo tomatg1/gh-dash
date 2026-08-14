@@ -4,7 +4,13 @@ Private notes for a personal `gh-dash` fork, checked out at `~/code/gh-dash`.
 These notes describe local build tooling and conventions; paths assume a
 `~/code/gh-dash` checkout — adjust to yours.
 
-Upstream: `dlvhdr/gh-dash` (forked at v4.25.0, `49f37e4`).
+Upstream: `dlvhdr/gh-dash` — forked at v4.25.0 (`49f37e4`), **rebased onto
+`4ea7c39`, which includes v4.25.1 and v4.25.2**.
+
+Upstream is under a [strict no-AI policy](../AI_POLICY.md) for outside
+contributions, and its PR template asks contributors to attest they've read it.
+Nothing from this fork goes upstream as a patch; a bug worth reporting goes as a
+plain issue, written by hand.
 
 **Real values never live in this repo.** Org names, repo names, browser profiles
 and the rest belong in `~/.config/gh-dash/config.yml`, which gh-dash reads and
@@ -144,7 +150,14 @@ A height saved on a taller terminal is clamped on load, so a big preview can
 never swallow the list. Only a **bottom-docked** preview has an up/down divider;
 a right-docked one would need a left/right drag, which isn't implemented.
 
-### Don't die outside a git repo (commit `a63ef7f`)
+### Don't die outside a git repo (~~commit `a63ef7f`~~ — now upstream's, v4.25.2)
+
+**No longer a fork patch.** Upstream fixed the same bug in `a613ef7` (PR #933,
+from #930) and shipped it in **v4.25.2**, so the fork's commit was dropped when
+rebasing onto it — it was the one conflict of the whole rebase, and both sides
+had deleted the same block. Kept here because the diagnosis is still the useful
+part, and because it's the fork's one case of upstream independently converging
+on the same fix.
 
 An upstream v4.25.0 regression. `cmd/root.go` did this:
 
@@ -169,7 +182,7 @@ The stray `="missing value"` is `charmbracelet/log` receiving `err` as a *key*
 rather than a key/value pair — a second symptom of the same stray line. Dropping
 the re-check restores the pre-#931 behavior (empty repo path, global config).
 
-This one is worth upstreaming on its own; branch `fix/no-git-repo-fatal`.
+~~This one is worth upstreaming on its own~~ — upstream got there first.
 
 ### Sub-minute auto-refresh (commit `667f72b`)
 
