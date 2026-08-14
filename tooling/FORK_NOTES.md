@@ -633,6 +633,44 @@ cd ~/code/gh-dash && gh extension install .
 another branch without rebuilding leaves `gh dash` running a stale binary.
 Rebuild after every branch switch or upstream pull.
 
+### The release ritual
+
+Every version goes through all five steps, in order. Skipping the last one is
+the classic failure: the binary on disk is new and every window is still running
+the old one.
+
+```bash
+git add -A internal/ tooling/FORK_NOTES.md
+git commit -F -                                  # heredoc, not -m
+git tag v4.25.0-local.N
+git push origin main:mouse-nav-and-ux v4.25.0-local.N   # branch AND tag together
+bash tooling/build.sh                            # writes the very inode gh serves
+bash tooling/restart.sh                          # quits + relaunches every instance
+```
+
+`restart.sh` is the half that used to live only in chat history, which is exactly
+how it got skipped: `build.sh` was versioned, the restart was retyped from memory
+each time. It matches Terminal tabs on the exact tty, refuses any tab running
+`claude`, relaunches, re-pins the Nerd Font profile, and then **proves** the
+result by requiring every surviving pid to have started after the binary's mtime
+— exiting non-zero if any is stale or unreachable. `strings` on the path says
+nothing about a running process; only the start time does.
+
+Two AppleScript traps it encodes, both of which have burned a session:
+
+- **Never address a tab as `index of t`.** Terminal's tab class has no `index`
+  property. Inside a `try`, that error silently skips the very tab being matched,
+  and the script cheerfully reports "tab not found".
+- **Quit and relaunch are separate `osascript` calls** with a shell `sleep`
+  between them, not one script with an AppleScript `delay`.
+
+A gh-dash in a ControlDeck/abduco pane is not a Terminal tab and cannot be
+restarted this way (see Known limitations); the script lists those separately so
+they get a manual `q` + `ghd`.
+
+`.claude/settings.json` allow-lists both scripts so the release never stalls on a
+permission classifier mid-ritual.
+
 ### Sync with upstream
 
 ```bash

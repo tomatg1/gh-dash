@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash tooling/build.sh)",
+      "Bash(tooling/build.sh:*)",
+      "Bash(./tooling/build.sh:*)",
+      "Bash(bash tooling/restart.sh)",
+      "Bash(tooling/restart.sh:*)",
+      "Bash(./tooling/restart.sh:*)"
+    ]
+  }
+}
