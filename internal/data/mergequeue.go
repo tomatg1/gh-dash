@@ -14,10 +14,14 @@ import (
 // FetchMergeQueueNumbers returns the set of PR numbers currently sitting in a
 // repo's merge queue for the given base branch.
 //
-// The PR list is fetched via GitHub's search API, which does NOT populate the
-// expensive computed field isInMergeQueue (it comes back false, same as
-// mergeStateStatus comes back UNKNOWN). The authoritative source is the repo's
-// mergeQueue.entries, so we enrich the list from here instead.
+// This is the authoritative source, and the list is enriched from it because the
+// search fetch was observed reading isInMergeQueue as false on queued PRs. Note
+// that search has since been measured returning the field correctly (repo- and
+// org-scoped, zero misses against this query), so the original explanation --
+// "search doesn't populate the expensive computed field" -- does not hold; the
+// unfalsified one is that search lags for the first seconds after an enqueue,
+// which is exactly when the icon is looked for. tooling/FORK_NOTES.md has the
+// measurements.
 func FetchMergeQueueNumbers(owner, name, branch string) (map[int]bool, error) {
 	if client == nil {
 		return nil, nil

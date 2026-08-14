@@ -321,13 +321,37 @@ without one. Scope is every `m` that acts on a PR: the PRs view (list + its
 sidebar) and the notifications PR-preview. Failures now surface gh's real error
 in the footer (fork also made `fireTask` capture stderr).
 
-**Showing queued state in the list.** The list is fetched via GitHub's `search`
-API, which does **not** populate `isInMergeQueue` (an expensive computed field —
-it comes back `false`, same as `mergeStateStatus` comes back `UNKNOWN`). So the
-merge-queue icon never triggered from the search alone. The list is now
-**enriched** after each fetch from the authoritative `repository.mergeQueue.
-entries`, scoped to `mergeQueueRepos` — one extra query per distinct (repo, base
-branch) present, so an `org:` tab doesn't fan out. `data/mergequeue.go`.
+**Showing queued state in the list.** The queue icon wasn't triggering from the
+list's `search` fetch — `isInMergeQueue` read `false` on PRs that were queued —
+so the list is **enriched** after each fetch from the authoritative
+`repository.mergeQueue.entries`, scoped to `mergeQueueRepos`: one extra query per
+distinct (repo, base branch) present, so an `org:` tab doesn't fan out.
+`data/mergequeue.go`.
+
+**Why, exactly, is not settled** (re-measured 2026-08-14). This was originally
+written up as "search doesn't populate the expensive computed field, the same way
+`mergeStateStatus` comes back `UNKNOWN`". That explanation does not hold:
+
+- The field has been in the search query since upstream `484b93e` (Jan 2026), so
+  it was never a matter of not asking for it.
+- Search now returns it **correctly** — repo-scoped and with an `org:` filter,
+  agreeing with `mergeQueue.entries` and with a direct `resource(url:)` read.
+  Reading the queue before *and* after each search (so churn can't fake a
+  mismatch): zero misses, zero false positives.
+- `mergeStateStatus` isn't uniformly `UNKNOWN` in search either — 36 of 40
+  resolved; the `UNKNOWN`s were the queued PRs, whose mergeability is being
+  recomputed.
+
+The live hypothesis is **lag**: search may report `false` for the first seconds
+after an enqueue, which is exactly when you look for the icon. That would make
+the enrichment a fix for a real but narrower problem. Untested — it needs an
+enqueue to observe.
+
+**So keep the enrichment.** It's one query per section per refetch, authoritative
+and lag-free; removing it buys that query back and risks re-introducing a bug
+that can't be reproduced on demand. If it ever does come out, note that
+`EnrichMergeQueueStatus` only ever sets `true` and never clears it, so a stale
+`true` from search would stick until the next fetch (not observed).
 
 ### `defaults.mergeMethod` — merge without the per-PR prompts
 
