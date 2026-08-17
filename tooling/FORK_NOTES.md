@@ -770,6 +770,21 @@ then running `sync`. Writes a `.bak`, validates the YAML, restores on failure.
 - **Persistent:** `~/.config/gh-dash/config.yml`. There is **no hot reload** —
   press `q`, then `ghd`.
 
+**A `/` edit now survives both the refresh and a restart** (fork). The refetch
+interval rebuilds every section from scratch, so anything not explicitly carried
+over is destroyed — which meant a filter typed between two ticks was wiped
+mid-keystroke, and an applied one silently reverted to the configured filter.
+`section.SearchState` (applied value, in-progress text, focused) is now carried
+across the rebuild in all three views, and the applied value is remembered per
+instance in `layout.json` next to the divider height and selection.
+
+It's an **override, not a replacement**: `config.yml` stays the source of truth,
+gh-dash still never writes it, and `ghd-repo sync` keeps regenerating tabs from
+the `All (org)` filter. Retype the configured filter and the override is dropped
+rather than pinned as a duplicate, so a later config change takes effect. The
+**raw** filter is stored, templates and all, so `{{ nowModify "-2w" }}` keeps
+meaning "two weeks before now" instead of freezing to the date it was typed.
+
 ### Approve / merge queue
 
 If your repo has GitHub's native merge queue enabled, the built-in `m` uses it:

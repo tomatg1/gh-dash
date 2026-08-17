@@ -143,6 +143,21 @@ func (t *TestSection) ResetFilters() {
 	panic("unimplemented")
 }
 
+// GetSearchValue implements section.Section.
+func (t *TestSection) GetSearchValue() string {
+	panic("unimplemented")
+}
+
+// GetSearchState implements section.Section.
+func (t *TestSection) GetSearchState() section.SearchState {
+	panic("unimplemented")
+}
+
+// RestoreSearchState implements section.Section.
+func (t *TestSection) RestoreSearchState(section.SearchState) tea.Cmd {
+	panic("unimplemented")
+}
+
 // ResetPageInfo implements section.Section.
 func (t *TestSection) ResetPageInfo() {
 	panic("unimplemented")

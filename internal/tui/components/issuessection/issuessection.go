@@ -411,6 +411,11 @@ func FetchAllSections(
 				}
 				sectionModel.Table.SetRows(sectionModel.BuildRows())
 				sectionModel.Table.SetCurrItem(old.Table.GetCurrItem())
+				// Carry the search UI too, or a filter being typed is destroyed
+				// mid-keystroke and an applied one reverts to the configured filter.
+				if cmd := sectionModel.RestoreSearchState(old.GetSearchState()); cmd != nil {
+					fetchIssuesCmds = append(fetchIssuesCmds, cmd)
+				}
 			}
 		}
 		sections = append(sections, &sectionModel)

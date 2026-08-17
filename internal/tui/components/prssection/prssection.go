@@ -678,7 +678,10 @@ func FetchAllSections(
 			time.Now(),
 			time.Now(),
 		)
-		if len(prs) > 0 && len(prs) >= i+1 && prs[i+1] != nil {
+		// prs[0] is the search section, so this section's predecessor is at i+1 --
+		// which needs len(prs) > i+1, not >= i+1 (that admits an out-of-range read
+		// when the slice ends exactly at i).
+		if len(prs) > i+1 && prs[i+1] != nil {
 			oldSection := prs[i+1].(*Model)
 			sectionModel.Prs = oldSection.Prs
 			sectionModel.LastFetchTaskId = oldSection.LastFetchTaskId
@@ -693,6 +696,12 @@ func FetchAllSections(
 			}
 			sectionModel.Table.SetRows(sectionModel.BuildRows())
 			sectionModel.Table.SetCurrItem(oldSection.Table.GetCurrItem())
+			// Carry the search UI too: a filter mid-edit would otherwise be
+			// destroyed keystroke by keystroke, and an applied one would revert to
+			// the configured filter on the next tick.
+			if cmd := sectionModel.RestoreSearchState(oldSection.GetSearchState()); cmd != nil {
+				fetchPRsCmds = append(fetchPRsCmds, cmd)
+			}
 		}
 		if sectionConfig.Layout.AuthorIcon.Hidden != nil {
 			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.AuthorIcon.Hidden

@@ -236,7 +236,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if currSection != nil && (currSection.IsSearchFocused() ||
 			currSection.IsPromptConfirmationFocused()) {
+			wasSearching := currSection.IsSearchFocused()
 			cmd = m.updateSection(currSection.GetId(), currSection.GetType(), msg)
+			// The bar just closed, so the edit is settled: enter applied it, esc
+			// put the previous one back. Either way, remember what the section
+			// now holds.
+			if s := m.getCurrSection(); wasSearching && s != nil && !s.IsSearchFocused() {
+				m.persistFilter(s)
+			}
+
 			return m, cmd
 		}
 
@@ -738,6 +746,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.SetPendingSelection(url)
 			}
 		}
+		// Same idea for a `/` edit: put it back before the fetch commands run.
+		m.restorePersistedFilters(newSections)
 		m.setCurrentViewSections(newSections)
 		m.tabs.SetCurrSectionId(1)
 
@@ -1325,6 +1335,42 @@ func (m *Model) onViewedRowChanged() tea.Cmd {
 	keys.SetNotificationSubject(keys.NotificationSubjectNone)
 	m.persistSelection()
 	return tea.Batch(sidebarCmd, enrichCmd)
+}
+
+// restorePersistedFilters applies this instance's remembered `/` edits to freshly
+// built sections, so a filter survives a restart the way the divider and the
+// selection do.
+//
+// Safe to call after the sections' fetch commands have been created: those
+// closures read the filter when bubbletea runs them, which is after this Update
+// returns -- so the first fetch already uses the restored filter.
+func (m *Model) restorePersistedFilters(sections []section.Section) {
+	for _, s := range sections {
+		if s == nil {
+			continue
+		}
+		if filter := loadFilter(m.layoutStateKey, s.GetConfig().Title); filter != "" {
+			st := s.GetSearchState()
+			st.Applied = filter
+			st.Editing = filter
+			s.RestoreSearchState(st)
+		}
+	}
+}
+
+// persistFilter remembers the current section's filter for this instance. The
+// raw value is stored, never GetSearchValue()'s template-expanded form, and a
+// filter matching config.yml clears the override instead of duplicating it --
+// so the configured filter stays the thing that changes when config changes.
+func (m *Model) persistFilter(s section.Section) {
+	if s == nil {
+		return
+	}
+	applied := s.GetSearchState().Applied
+	if applied == s.GetConfig().Filters {
+		applied = ""
+	}
+	_ = saveFilter(m.layoutStateKey, s.GetConfig().Title, applied)
 }
 
 // persistSelection remembers the current section's selected item so it can be

@@ -221,6 +221,9 @@ type Search interface {
 	ViewCompletions() string
 	ResetFilters()
 	GetFilters() string
+	GetSearchValue() string
+	GetSearchState() SearchState
+	RestoreSearchState(st SearchState) tea.Cmd
 	ResetPageInfo()
 }
 
@@ -405,6 +408,44 @@ func (m *BaseModel) SetIsSearching(val bool) tea.Cmd {
 
 func (m *BaseModel) ResetFilters() {
 	m.SearchBar.SetValue(m.GetSearchValue())
+}
+
+// SearchState is the sliver of search UI that has to survive a section being
+// rebuilt (which the refetch interval does to every section, every tick).
+// Without it a filter being typed is destroyed mid-keystroke and an applied one
+// silently reverts to the configured filter.
+type SearchState struct {
+	// Applied is the filter actually in effect -- what fetches use.
+	Applied string
+	// Editing is the in-progress text in the search bar, which differs from
+	// Applied while the user is typing and until they press enter.
+	Editing string
+	// Focused reports that the bar is open and taking keystrokes.
+	Focused bool
+}
+
+// GetSearchState captures the search UI so a replacement section can restore it.
+func (m *BaseModel) GetSearchState() SearchState {
+	return SearchState{
+		Applied: m.SearchValue,
+		Editing: m.SearchBar.Value(),
+		Focused: m.IsSearching,
+	}
+}
+
+// RestoreSearchState puts a captured search UI back onto a freshly built
+// section. The returned command re-arms the cursor blink when the bar was
+// focused; it is nil otherwise.
+func (m *BaseModel) RestoreSearchState(st SearchState) tea.Cmd {
+	m.SearchValue = st.Applied
+	m.SyncSmartFilterWithSearchValue()
+	m.SearchBar.SetValue(st.Editing)
+
+	if !st.Focused {
+		return nil
+	}
+
+	return m.SetIsSearching(true)
 }
 
 func (m *BaseModel) ViewCompletions() string {

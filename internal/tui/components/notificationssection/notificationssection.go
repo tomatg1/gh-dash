@@ -858,10 +858,13 @@ func FetchAllSections(
 				sectionModel.LastFetchTaskId = oldSection.LastFetchTaskId
 				sectionModel.sessionMarkedRead = oldSection.sessionMarkedRead
 				sectionModel.sessionMarkedDone = oldSection.sessionMarkedDone
-				// Preserve user's filter state - don't reset on refresh
+				// Preserve the user's filter state -- including text typed but not
+				// yet applied, and whether the bar is open. Restoring only the
+				// applied value (as this used to) still wiped an edit in progress.
 				sectionModel.IsFilteredByCurrentRemote = oldSection.IsFilteredByCurrentRemote
-				sectionModel.SearchValue = oldSection.SearchValue
-				sectionModel.SearchBar.SetValue(oldSection.SearchValue)
+				if cmd := sectionModel.RestoreSearchState(oldSection.GetSearchState()); cmd != nil {
+					fetchCmds = append(fetchCmds, cmd)
+				}
 				// Keep the cursor on the same notification across the refresh.
 				// Render the carried-over rows with the cursor already in place NOW,
 				// so the list doesn't flash to the top row while the fetch is in

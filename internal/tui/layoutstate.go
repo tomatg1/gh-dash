@@ -16,6 +16,12 @@ type layoutState struct {
 	// state rather than the visible one so the zero value (absent key) means
 	// "show merged", which is the default whenever showMergedFor is configured.
 	MergedHidden map[string]bool `json:"mergedHidden,omitempty"`
+	// Filters records a `/` edit per instance + section, as an OVERRIDE of the
+	// configured filter. Absent means "use config.yml", which stays the source of
+	// truth -- gh-dash never writes it, and ghd-repo sync regenerates from it.
+	// The raw filter is stored, templates included, so `{{ nowModify "-2w" }}`
+	// keeps meaning "two weeks before now" instead of freezing to a date.
+	Filters map[string]string `json:"filters,omitempty"`
 }
 
 // layoutStateDir follows the XDG state spec -- state that should persist but
@@ -76,6 +82,7 @@ func emptyLayoutState() layoutState {
 		PreviewHeight: map[string]int{},
 		Selection:     map[string]string{},
 		MergedHidden:  map[string]bool{},
+		Filters:       map[string]string{},
 	}
 }
 
@@ -124,6 +131,9 @@ func readLayoutState() layoutState {
 	}
 	if st.MergedHidden == nil {
 		st.MergedHidden = map[string]bool{}
+	}
+	if st.Filters == nil {
+		st.Filters = map[string]string{}
 	}
 
 	return st
@@ -174,6 +184,30 @@ func saveSelection(instanceKey, section, url string) error {
 		delete(st.Selection, k)
 	} else {
 		st.Selection[k] = url
+	}
+
+	return writeLayoutState(st)
+}
+
+// loadFilter returns this instance's remembered filter override for a section,
+// or "" when there is none and the configured filter should win.
+func loadFilter(instanceKey, section string) string {
+	return readLayoutState().Filters[selectionKey(instanceKey, section)]
+}
+
+// saveFilter persists a filter override for a section. An empty filter deletes
+// the entry, so clearing an edit falls back to config.yml rather than pinning an
+// empty filter forever.
+func saveFilter(instanceKey, section, filter string) error {
+	if layoutStateDir() == "" || instanceKey == "" {
+		return nil
+	}
+	st := readLayoutState()
+	k := selectionKey(instanceKey, section)
+	if filter == "" {
+		delete(st.Filters, k)
+	} else {
+		st.Filters[k] = filter
 	}
 
 	return writeLayoutState(st)
