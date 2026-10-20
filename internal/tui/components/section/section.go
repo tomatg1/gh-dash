@@ -58,6 +58,16 @@ type BaseModel struct {
 	// keeps the cursor on the same item instead of snapping to the top. URL is
 	// used because it's on every RowData (notifications have no number).
 	pendingSelection string
+
+	// The last frame of this section, reused while its inputs are unchanged.
+	viewMemo *sectionViewMemo
+}
+
+type sectionViewMemo struct {
+	search, main string
+	width        int
+	out          string
+	ok           bool
 }
 
 // SetPendingSelection records the URL of the item to reselect after the next
@@ -584,15 +594,20 @@ func (m *BaseModel) GetMainContent() string {
 
 func (m *BaseModel) View() string {
 	search := m.SearchBar.View(m.Ctx)
-	return m.Ctx.Styles.Section.ContainerStyle.
+	main := m.GetMainContent()
+	if m.viewMemo == nil {
+		m.viewMemo = &sectionViewMemo{}
+	}
+	if mm := m.viewMemo; mm.ok && mm.search == search && mm.main == main && mm.width == m.Ctx.MainContentWidth {
+		return mm.out
+	}
+
+	out := m.Ctx.Styles.Section.ContainerStyle.
 		Width(m.Ctx.MainContentWidth).
-		Render(
-			lipgloss.JoinVertical(
-				lipgloss.Left,
-				search,
-				m.GetMainContent(),
-			),
-		)
+		Render(lipgloss.JoinVertical(lipgloss.Left, search, main))
+	*m.viewMemo = sectionViewMemo{search: search, main: main, width: m.Ctx.MainContentWidth, out: out, ok: true}
+
+	return out
 }
 
 func (m *BaseModel) ResetRows() {

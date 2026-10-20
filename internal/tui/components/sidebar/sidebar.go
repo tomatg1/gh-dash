@@ -19,6 +19,28 @@ type Model struct {
 	viewport   viewport.Model
 	ctx        *context.ProgramContext
 	emptyState string
+
+	// The last frame, reused while nothing it depends on changed. Behind a
+	// pointer because View has a value receiver.
+	dataGen int
+	memo    *sidebarMemo
+}
+
+type sidebarKey struct {
+	open                     bool
+	position                 string
+	dynHeight, dynWidth      int
+	mainHeight               int
+	pagerHeight              int
+	theme                    any
+	dataGen                  int
+	yOffset, vWidth, vHeight int
+}
+
+type sidebarMemo struct {
+	key sidebarKey
+	out string
+	ok  bool
 }
 
 func NewModel() Model {
@@ -33,6 +55,7 @@ func NewModel() Model {
 		viewport:   vp,
 		ctx:        nil,
 		emptyState: "Nothing selected...",
+		memo:       &sidebarMemo{},
 	}
 }
 
@@ -55,6 +78,26 @@ func (m Model) View() string {
 	if !m.IsOpen {
 		return ""
 	}
+
+	key := sidebarKey{
+		open: m.IsOpen, position: m.ctx.PreviewPosition,
+		dynHeight: m.ctx.DynamicPreviewHeight, dynWidth: m.ctx.DynamicPreviewWidth,
+		mainHeight: m.ctx.MainContentHeight, pagerHeight: m.ctx.Styles.Sidebar.PagerHeight,
+		theme: m.ctx.Config, dataGen: m.dataGen,
+		yOffset: m.viewport.YOffset(), vWidth: m.viewport.Width(), vHeight: m.viewport.Height(),
+	}
+	if m.memo != nil && m.memo.ok && m.memo.key == key {
+		return m.memo.out
+	}
+	out := m.render()
+	if m.memo != nil {
+		*m.memo = sidebarMemo{key: key, out: out, ok: true}
+	}
+
+	return out
+}
+
+func (m Model) render() string {
 
 	if m.ctx.PreviewPosition == "bottom" {
 		height := max(0, m.ctx.DynamicPreviewHeight)
@@ -117,6 +160,7 @@ func (m Model) View() string {
 }
 
 func (m *Model) SetContent(data string) {
+	m.dataGen++
 	m.data = data
 	m.viewport.SetContent(data)
 }

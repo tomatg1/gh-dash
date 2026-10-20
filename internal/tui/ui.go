@@ -85,6 +85,11 @@ type Model struct {
 	previewHeightOverride    int
 	previewHeightOverrideSet bool
 	layoutStateKey           string
+	// rowSettleSeq identifies the latest scroll; see onViewedRowScrolled.
+	rowSettleSeq int
+	// settleArmed: a settle timer is already pending, so further scrolling only
+	// bumps rowSettleSeq instead of starting one timer per scroll event.
+	settleArmed bool
 	// frameBuf holds the last frame View rendered, so a drag-release can read
 	// the text under the selection. View has a value receiver and cannot write
 	// to the model, hence the pointer.
@@ -307,14 +312,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, currSection.FetchNextPageSectionRows()...)
 				}
 				m.userMovedSelection(currSection)
-				cmd = m.onViewedRowChanged()
+				cmd = m.onViewedRowScrolled()
 			}
 
 		case key.Matches(msg, m.keys.Up):
 			if currSection != nil {
 				currSection.PrevRow()
 				m.userMovedSelection(currSection)
-				cmd = m.onViewedRowChanged()
+				cmd = m.onViewedRowScrolled()
 			}
 
 		case key.Matches(msg, m.keys.FirstLine):
@@ -771,6 +776,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.doRefreshAtInterval(), m.doUpdateFooterAtInterval(),
 			m.prewarmBrowserCmd())
 
+	case rowSettledMsg:
+		// Settled only if nothing scrolled since the timer was armed; otherwise
+		// check again a settle-delay after the latest scroll.
+		if msg.seq == m.rowSettleSeq {
+			m.settleArmed = false
+			cmds = append(cmds, m.onViewedRowChanged())
+		} else {
+			cmds = append(cmds, m.armSettle())
+		}
+
 	case intervalRefresh:
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
 		m.setCurrentViewSections(newSections)
@@ -807,10 +822,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prview.EnrichedPrMsg:
 		if msg.Err == nil {
-			m.prView.SetEnrichedPR(msg.Data)
 			m.prs[msg.Id].(*prssection.Model).EnrichPR(msg.Data)
-			syncCmd := m.syncSidebar()
-			cmds = append(cmds, syncCmd)
+			if m.prView.SetEnrichedPR(msg.Data) {
+				cmds = append(cmds, m.syncSidebar())
+			}
 		} else {
 			log.Error("failed enriching pr", "err", msg.Err)
 		}
@@ -1106,7 +1121,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				currSection.PrevRow()
 			}
 			m.userMovedSelection(currSection)
-			cmds = append(cmds, m.onViewedRowChanged())
+			cmds = append(cmds, m.onViewedRowScrolled())
 		}
 
 	case tea.WindowSizeMsg:
@@ -1329,6 +1344,47 @@ func (m *Model) markNotificationAsRead(notificationId string) {
 		Unread: false,
 	}
 	m.updateNotificationSections(readStateMsg)
+}
+
+// rowSettleDelay is how long the selection must rest before the work that
+// follows a row change runs: rendering the preview (glamour markdown), fetching
+// the PR's details, and writing the selection to disk. A trackpad flick moves
+// the selection dozens of rows, and doing that work for every row passed
+// saturated the event loop. Long enough to outlast the gaps between the events
+// of a flick, short enough to read as immediate once scrolling stops.
+const rowSettleDelay = 90 * time.Millisecond
+
+type rowSettledMsg struct{ seq int }
+
+// onViewedRowScrolled is onViewedRowChanged for scrolling (wheel, up/down keys):
+// everything keys act on follows the cursor now, in the same order as
+// onViewedRowChanged; the expensive part runs once the selection settles. A
+// single jump -- a click, first/last -- still uses onViewedRowChanged directly.
+func (m *Model) onViewedRowScrolled() tea.Cmd {
+	m.prView.SetSummaryViewLess()
+	m.prView.GoToFirstTab()
+	stateCmd := m.syncSidebarWith(false)
+	m.notificationView.ResetSubject()
+	keys.SetNotificationSubject(keys.NotificationSubjectNone)
+
+	m.rowSettleSeq++
+	if m.settleArmed {
+		return stateCmd
+	}
+	m.settleArmed = true
+
+	return tea.Batch(stateCmd, m.armSettle())
+}
+
+// armSettle starts the settle timer for the latest scroll. One timer at a time:
+// when it fires and scrolling has continued since, it re-arms rather than doing
+// the work -- so a 60-event flick costs a handful of settle messages, not 60.
+func (m *Model) armSettle() tea.Cmd {
+	seq := m.rowSettleSeq
+
+	return tea.Tick(rowSettleDelay, func(time.Time) tea.Msg {
+		return rowSettledMsg{seq: seq}
+	})
 }
 
 func (m *Model) onViewedRowChanged() tea.Cmd {
@@ -1701,6 +1757,14 @@ func (m *Model) promptConfirmation(
 }
 
 func (m *Model) syncSidebar() tea.Cmd {
+	return m.syncSidebarWith(true)
+}
+
+// syncSidebarWith points the sidebar's components at the current row and, if
+// render is set, renders it. Pointing is cheap and must follow the cursor at
+// once, because keys act on it; rendering (glamour markdown for a PR) is the
+// expensive part, and while scrolling it waits for the selection to settle.
+func (m *Model) syncSidebarWith(render bool) tea.Cmd {
 	if !m.sidebar.IsOpen {
 		return nil
 	}
@@ -1717,24 +1781,30 @@ func (m *Model) syncSidebar() tea.Cmd {
 	switch row := currRowData.(type) {
 	case branch.BranchData:
 		cmd = m.branchSidebar.SetRow(&row)
-		m.sidebar.SetContent(m.branchSidebar.View())
+		if render {
+			m.sidebar.SetContent(m.branchSidebar.View())
+		}
 	case *prrow.Data:
 		m.prView.SetSectionId(m.currSectionId)
 		m.prView.SetRow(row)
 		m.prView.SetWidth(width)
-		m.sidebar.SetContent(m.prView.View())
-		// Scroll to bottom if in input mode to keep inputbox visible
-		if m.prView.IsTextInputBoxFocused() {
-			m.sidebar.ScrollToBottom()
+		if render {
+			m.sidebar.SetContent(m.prView.View())
+			// Scroll to bottom if in input mode to keep inputbox visible
+			if m.prView.IsTextInputBoxFocused() {
+				m.sidebar.ScrollToBottom()
+			}
 		}
 	case *data.IssueData:
 		m.issueSidebar.SetSectionId(m.currSectionId)
 		m.issueSidebar.SetRow(row)
 		m.issueSidebar.SetWidth(width)
-		m.sidebar.SetContent(m.issueSidebar.View())
-		// Scroll to bottom if in input mode to keep inputbox visible
-		if m.issueSidebar.IsTextInputBoxFocused() {
-			m.sidebar.ScrollToBottom()
+		if render {
+			m.sidebar.SetContent(m.issueSidebar.View())
+			// Scroll to bottom if in input mode to keep inputbox visible
+			if m.issueSidebar.IsTextInputBoxFocused() {
+				m.sidebar.ScrollToBottom()
+			}
 		}
 	case *notificationrow.Data:
 		notifId := row.GetId()
@@ -1746,19 +1816,23 @@ func (m *Model) syncSidebar() tea.Cmd {
 				m.prView.SetSectionId(0)
 				m.prView.SetRow(m.notificationView.GetSubjectPR())
 				m.prView.SetWidth(width)
-				m.sidebar.SetContent(m.prView.View())
-				// Scroll to bottom if in input mode to keep inputbox visible
-				if m.prView.IsTextInputBoxFocused() {
-					m.sidebar.ScrollToBottom()
+				if render {
+					m.sidebar.SetContent(m.prView.View())
+					// Scroll to bottom if in input mode to keep inputbox visible
+					if m.prView.IsTextInputBoxFocused() {
+						m.sidebar.ScrollToBottom()
+					}
 				}
 			} else if m.notificationView.GetSubjectIssue() != nil {
 				m.issueSidebar.SetSectionId(0)
 				m.issueSidebar.SetRow(m.notificationView.GetSubjectIssue())
 				m.issueSidebar.SetWidth(width)
-				m.sidebar.SetContent(m.issueSidebar.View())
-				// Scroll to bottom if in input mode to keep inputbox visible
-				if m.issueSidebar.IsTextInputBoxFocused() {
-					m.sidebar.ScrollToBottom()
+				if render {
+					m.sidebar.SetContent(m.issueSidebar.View())
+					// Scroll to bottom if in input mode to keep inputbox visible
+					if m.issueSidebar.IsTextInputBoxFocused() {
+						m.sidebar.ScrollToBottom()
+					}
 				}
 			}
 			return nil
@@ -1770,7 +1844,9 @@ func (m *Model) syncSidebar() tea.Cmd {
 		keys.SetNotificationSubject(keys.NotificationSubjectNone)
 		// Show prompt to view notification (don't auto-fetch)
 		// User must press Enter to view content and mark as read
-		m.sidebar.SetContent(m.renderNotificationPrompt(row))
+		if render {
+			m.sidebar.SetContent(m.renderNotificationPrompt(row))
+		}
 	}
 
 	return cmd

@@ -23,6 +23,20 @@ type Model struct {
 	LastUpdated     time.Time
 	CreatedAt       time.Time
 	ItemTypeLabel   string
+
+	// View is called on every frame and its output only changes with the
+	// content, the scroll offset or the size, so the last render is kept. It sits
+	// behind a pointer because callers render through value copies.
+	contentGen int
+	memo       *viewMemo
+}
+
+type viewKey struct{ gen, yOffset, width, height int }
+
+type viewMemo struct {
+	key viewKey
+	out string
+	ok  bool
 }
 
 func NewModel(
@@ -43,6 +57,7 @@ func NewModel(
 			viewport.WithHeight(dimensions.Height),
 		),
 		topBoundId:    0,
+		memo:          &viewMemo{},
 		ItemTypeLabel: itemTypeLabel,
 		LastUpdated:   lastUpdated,
 		CreatedAt:     createdAt,
@@ -109,6 +124,7 @@ func (m *Model) SetItemHeight(height int) {
 // afterwards because the viewport clamps it to the content it has: an offset set
 // while the content was still empty (a freshly built list) would be lost.
 func (m *Model) SyncViewPort(content string) {
+	m.contentGen++
 	m.viewport.SetContent(content)
 	m.viewport.SetYOffset(m.topBoundId * m.ListItemHeight)
 }
@@ -191,13 +207,20 @@ func (m *Model) SetDimensions(dimensions constants.Dimensions) {
 }
 
 func (m *Model) View() string {
-	viewport := m.viewport.View()
-	return lipgloss.NewStyle().
+	key := viewKey{m.contentGen, m.viewport.YOffset(), m.viewport.Width(), m.viewport.Height()}
+	if m.memo != nil && m.memo.ok && m.memo.key == key {
+		return m.memo.out
+	}
+
+	out := lipgloss.NewStyle().
 		Width(m.viewport.Width()).
 		MaxWidth(m.viewport.Width()).
-		Render(
-			viewport,
-		)
+		Render(m.viewport.View())
+	if m.memo != nil {
+		*m.memo = viewMemo{key: key, out: out, ok: true}
+	}
+
+	return out
 }
 
 func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {

@@ -809,11 +809,17 @@ func (m *Model) SetSummaryViewLess() {
 	m.summaryViewMore = false
 }
 
-func (m *Model) SetEnrichedPR(data data.EnrichedPullRequestData) {
-	if m.pr.Data.Primary.Url == data.Url {
-		m.pr.Data.Enriched = data
-		m.pr.Data.IsEnriched = true
+// SetEnrichedPR applies fetched details if they belong to the PR this preview
+// is showing, and reports whether they did. Details arriving for a PR the user
+// has already scrolled past are ignored -- and need no re-render.
+func (m *Model) SetEnrichedPR(data data.EnrichedPullRequestData) bool {
+	if m.pr == nil || m.pr.Data == nil || m.pr.Data.Primary == nil || m.pr.Data.Primary.Url != data.Url {
+		return false
 	}
+	m.pr.Data.Enriched = data
+	m.pr.Data.IsEnriched = true
+
+	return true
 }
 
 func (m *Model) GetIsLabeling() bool {

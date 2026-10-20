@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prrow"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prssection"
+	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/prview"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
 )
 
@@ -46,7 +49,9 @@ func perfPRs(section, n int) []prrow.Data {
 		num := 13000 - section*100 - i
 		url := fmt.Sprintf("https://github.com/acme/monorepo/pull/%d", num)
 		title := fmt.Sprintf("fix(scope-%d): a reasonably long pull request title for row %d", section, i)
-		at := time.Now().Add(-time.Duration(i) * time.Hour)
+		// At least an hour old: ages are formatted to the second, and a fixture
+		// reading "now" would read "1s" in a model built a moment later.
+		at := time.Now().Add(-time.Duration(i+1) * time.Hour)
 		out = append(out, prrow.Data{
 			Primary: &data.PullRequestData{
 				Id: fmt.Sprintf("PR_%d", num), Number: num, Title: title, Url: url,
@@ -69,8 +74,13 @@ func perfPRs(section, n int) []prrow.Data {
 }
 
 // perfModel boots the app the way main does and lands rowsPerTab PRs in each tab.
+//
+// Each model gets its own state directory. Models built in one test would
+// otherwise share layout.json, and one model's remembered selection would be
+// restored into the next -- two "identical" models starting on different rows.
 func perfModel(tb testing.TB, rowsPerTab ...int) Model {
 	tb.Helper()
+	tb.Setenv("XDG_STATE_HOME", tb.TempDir())
 	zone.NewGlobal()
 
 	cfg, err := config.ParseConfig(config.Location{
@@ -118,7 +128,6 @@ func perfModel(tb testing.TB, rowsPerTab ...int) Model {
 		m = next.(Model)
 	}
 	m.currSectionId = 2 // the busy middle tab, as in the live runs
-	_ = m.View()
 
 	return m
 }
@@ -163,4 +172,74 @@ func BenchmarkResponsiveness(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkScrollDuringSync replays scrolling while a refresh is in flight --
+// the situation where the event loop used to fall seconds behind. 3s of events
+// arrive (spinner ticks at the 34/s measured during a refetch, trackpad wheel
+// events at 40/s), then each tab's results land and the enrichments the
+// scrolling requested come back. The loop handles them one at a time; behind_ms
+// is how much longer than the 3s it needed, i.e. how far the screen lags.
+func BenchmarkScrollDuringSync(b *testing.B) {
+	for _, rows := range []int{20, 40} {
+		b.Run(fmt.Sprintf("rows=%d", rows), func(b *testing.B) {
+			var behind time.Duration
+			for b.Loop() {
+				behind += scrollDuringSync(b, rows)
+			}
+			b.ReportMetric(float64(behind.Milliseconds())/float64(b.N), "behind_ms")
+		})
+	}
+}
+
+func scrollDuringSync(b *testing.B, rows int) time.Duration {
+	b.StopTimer()
+	m := perfModel(b, rows, rows, 1)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 112, Height: 50})
+	m = next.(Model)
+	b.StartTimer()
+
+	const window = 3 * time.Second
+	t0 := time.Now()
+	next, _ = m.Update(intervalRefresh(time.Now()))
+	m = next.(Model)
+	_ = m.View()
+
+	type arrival struct {
+		at   time.Duration
+		tick bool
+	}
+	var sched []arrival
+	for k := range 34 * 3 {
+		sched = append(sched, arrival{time.Duration(k) * time.Second / 34, true})
+	}
+	for j := range 40 * 3 {
+		sched = append(sched, arrival{time.Duration(j) * time.Second / 40, false})
+	}
+	slices.SortStableFunc(sched, func(a, c arrival) int { return cmp.Compare(a.at, c.at) })
+	wheels := 0
+	for _, a := range sched {
+		var ev tea.Msg = spinner.TickMsg{}
+		if !a.tick {
+			ev = wheelEvent(wheels * 15 / 30) // flicks alternate every 30 events
+			wheels++
+		}
+		m = step(m, ev)
+	}
+
+	for id := 1; id <= 3; id++ {
+		ps := m.prs[id].(*prssection.Model)
+		n := []int{rows, rows, 1}[id-1]
+		m = step(m, constants.TaskFinishedMsg{
+			SectionId: ps.Id, SectionType: prssection.SectionType, TaskId: ps.LastFetchTaskId,
+			Msg: prssection.SectionPullRequestsFetchedMsg{Prs: perfPRs(id-1, n), TotalCount: n,
+				TaskId: ps.LastFetchTaskId, PageInfo: data.PageInfo{HasNextPage: false}},
+		})
+	}
+	ps := m.prs[2].(*prssection.Model)
+	for i := range min(40, len(ps.Prs)) {
+		m = step(m, prview.EnrichedPrMsg{Id: ps.Id, Type: prssection.SectionType, Data: ps.Prs[i].Enriched})
+	}
+
+	return max(0, time.Since(t0)-window)
 }

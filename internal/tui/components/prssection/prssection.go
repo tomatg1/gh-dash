@@ -87,6 +87,16 @@ func mergeMethodFromKey(input string) string {
 type Model struct {
 	section.BaseModel
 	Prs []prrow.Data
+
+	// The cursor row the table's cells were last built for, and when. The
+	// selected row's cells carry selected styling, so a cursor move restyles the
+	// two rows whose selected-ness changed instead of rebuilding every row.
+	rowsBuiltSel int
+	rowsBuiltAt  time.Time
+	// The column widths the cells were built for. Cells are formatted for their
+	// widths (titles and labels truncated when built), so a width change needs a
+	// rebuild, not just a re-render.
+	rowsBuiltWidths []int
 }
 
 func NewModel(
@@ -268,7 +278,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			}
 			m.Prs[i] = currPr
 			m.SetIsLoading(false)
-			m.Table.SetRows(m.BuildRows())
+			m.rebuildRows()
 			break
 		}
 
@@ -282,7 +292,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.TotalCount = msg.TotalCount
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)
-			m.Table.SetRows(m.BuildRows())
+			m.rebuildRows()
 			m.restoreSelection()
 			m.Table.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
@@ -290,7 +300,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 	}
 
 	search, searchCmd := m.SearchBar.Update(msg)
-	m.Table.SetRows(m.BuildRows())
+	m.syncSelectedRows()
 	m.SearchBar = search
 
 	prompt, promptCmd := m.PromptConfirmationBox.Update(msg)
@@ -481,25 +491,88 @@ func GetSectionColumns(
 }
 
 func (m Model) BuildRows() []table.Row {
-	var rows []table.Row
+	rows := make([]table.Row, 0, len(m.Prs))
 	currItem := m.Table.GetCurrItem()
-	for i, currPr := range m.Prs {
-		prModel := prrow.PullRequest{
-			Ctx:     m.Ctx,
-			Data:    &currPr,
-			Columns: m.Table.Columns, ShowAuthorIcon: m.ShowAuthorIcon,
-		}
-		rows = append(
-			rows,
-			prModel.ToTableRow(i, currItem == i),
-		)
-	}
-
-	if rows == nil {
-		rows = []table.Row{}
+	for i := range m.Prs {
+		rows = append(rows, m.buildRow(i, currItem == i))
 	}
 
 	return rows
+}
+
+func (m Model) buildRow(i int, selected bool) table.Row {
+	pr := m.Prs[i]
+	prModel := prrow.PullRequest{
+		Ctx:     m.Ctx,
+		Data:    &pr,
+		Columns: m.Table.Columns, ShowAuthorIcon: m.ShowAuthorIcon,
+	}
+
+	return prModel.ToTableRow(i, selected)
+}
+
+// rebuildRows rebuilds every row from the data. Needed when the data changed;
+// a cursor move only needs syncSelectedRows.
+func (m *Model) rebuildRows() {
+	// Record the widths the cells are built WITH, not the ones after SetRows: a
+	// fresh table only computes its column widths on its first sync, so its first
+	// build sees zero widths (untruncated titles). If the sync changed the widths,
+	// build once more; widths come from the layout, not the rows, so that settles.
+	for range 2 {
+		widths := m.columnWidths()
+		m.Table.SetRows(m.BuildRows())
+		m.rowsBuiltWidths = widths
+		if slices.Equal(widths, m.columnWidths()) {
+			break
+		}
+	}
+	m.rowsBuiltSel = m.Table.GetCurrItem()
+	m.rowsBuiltAt = time.Now()
+}
+
+func (m *Model) columnWidths() []int {
+	widths := make([]int, len(m.Table.Columns))
+	for i, c := range m.Table.Columns {
+		widths[i] = c.ComputedWidth
+	}
+
+	return widths
+}
+
+// UpdateProgramContext re-syncs the section with the program context -- which
+// the program does for every tab after any layout change -- and rebuilds the
+// cells if that changed the column widths they were formatted for.
+func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
+	m.BaseModel.UpdateProgramContext(ctx)
+	if !slices.Equal(m.columnWidths(), m.rowsBuiltWidths) {
+		m.rebuildRows()
+	}
+}
+
+// rowsRefreshEvery bounds how stale the relative times in the rows can get
+// between full rebuilds. Ages are formatted to the second ("now", "12s"), so
+// this keeps recent ones honest; a full rebuild is a few milliseconds, so every
+// 10s is nothing next to the per-message rebuild it replaces.
+const rowsRefreshEvery = 10 * time.Second
+
+// syncSelectedRows restyles the rows whose selected-ness changed since the rows
+// were built -- the one the cursor left and the one it entered. This used to be
+// a rebuild of every row on every message, the section's main per-message cost.
+func (m *Model) syncSelectedRows() {
+	if time.Since(m.rowsBuiltAt) > rowsRefreshEvery {
+		m.rebuildRows()
+		return
+	}
+	curr := m.Table.GetCurrItem()
+	if curr == m.rowsBuiltSel {
+		return
+	}
+	for _, i := range []int{m.rowsBuiltSel, curr} {
+		if i >= 0 && i < len(m.Prs) {
+			m.Table.SetRow(i, m.buildRow(i, i == curr))
+		}
+	}
+	m.rowsBuiltSel = curr
 }
 
 func (m *Model) NumRows() int {
@@ -540,7 +613,7 @@ func (m *Model) DropMergedRows() {
 	if selected != "" {
 		m.SetPendingSelection(selected)
 	}
-	m.Table.SetRows(m.BuildRows())
+	m.rebuildRows()
 	m.restoreSelection()
 }
 
@@ -678,6 +751,11 @@ func FetchAllSections(
 			time.Now(),
 			time.Now(),
 		)
+		// Before any rows are built: they are no longer rebuilt on every message,
+		// so a setting applied after the carry-over would not reach them.
+		if sectionConfig.Layout.AuthorIcon.Hidden != nil {
+			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.AuthorIcon.Hidden
+		}
 		// prs[0] is the search section, so this section's predecessor is at i+1 --
 		// which needs len(prs) > i+1, not >= i+1 (that admits an out-of-range read
 		// when the slice ends exactly at i).
@@ -694,17 +772,15 @@ func FetchAllSections(
 			if r := oldSection.GetCurrRow(); r != nil {
 				sectionModel.SetPendingSelection(r.GetUrl())
 			}
-			sectionModel.Table.SetRows(sectionModel.BuildRows())
+			sectionModel.rebuildRows()
 			sectionModel.Table.RestoreScroll(oldSection.Table.ScrollState())
+			sectionModel.syncSelectedRows() // cells for the restored cursor, not row 0
 			// Carry the search UI too: a filter mid-edit would otherwise be
 			// destroyed keystroke by keystroke, and an applied one would revert to
 			// the configured filter on the next tick.
 			if cmd := sectionModel.RestoreSearchState(oldSection.GetSearchState()); cmd != nil {
 				fetchPRsCmds = append(fetchPRsCmds, cmd)
 			}
-		}
-		if sectionConfig.Layout.AuthorIcon.Hidden != nil {
-			sectionModel.ShowAuthorIcon = !*sectionConfig.Layout.AuthorIcon.Hidden
 		}
 		sections = append(sections, &sectionModel)
 		fetchPRsCmds = append(

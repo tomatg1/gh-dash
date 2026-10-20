@@ -473,6 +473,76 @@ sidebar. Typed-then-Enter still works, and an empty Enter cancels (the prompt sa
 merge-method picker (`TextEntryPromptActions`), where a keystroke is a character,
 not an answer. The picker resolves on its own single letter (`s`/`m`/`r`) instead.
 
+### Responsiveness: no more multi-second lag during syncs (`local.25`)
+
+**Symptom:** scrolling (mostly with a trackpad) hung, or lagged for seconds,
+intermittently — worst while a refresh was in flight.
+
+**Cause: every message was expensive, and syncs bring a flood of messages.**
+Bubbletea processes messages one at a time on one goroutine, then renders. In
+`local.24`:
+
+- each message re-sync'd every tab's table (`syncProgramContext`, unconditional),
+  and every sync re-rendered **every row of every tab**, visible or not;
+- the PR section also re-styled every row's cells on every message;
+- every row the cursor passed re-rendered the preview (glamour markdown), fired a
+  GitHub **enrichment query**, and rewrote `layout.json` — and each enrichment
+  coming back re-rendered the preview again, even for rows already left behind.
+
+A refresh keeps several spinners ticking (~34 messages/s measured), each paying
+the full re-render. Add trackpad events and the loop needed more than a second
+of work per second: input queued, and the queue drained only after the sync
+finished. `BenchmarkScrollDuringSync` replays exactly that — 3 s of ticks and
+wheel events during a refresh, then its results and the enrichments landing —
+and reports how far behind the screen ends:
+
+| | `local.24` | `local.25` |
+|---|---|---|
+| 20 rows/tab | 0.6–1.2 s behind | 0 (loop ~30% busy) |
+| 40 rows/tab | 3.1–4.2 s behind | 0 (loop ~45% busy) |
+
+Per event, deterministic allocation counts: a wheel event 157k → 51k, a spinner
+tick 121k → 6.4k; on a quiet machine a tick costs ~3 ms (was 16–18 ms).
+
+**What changed:**
+
+- **Table: per-row render cache** (`table.go`). A row is re-rendered only when
+  its cells change or its selected-ness flips; everything only when width, theme
+  or columns change. `TestIncrementalRender_MatchesAFullRender` holds the cache
+  to a from-scratch render after every kind of change.
+- **PR rows restyle only the two rows a cursor move affects** (`prssection`):
+  `syncSelectedRows` instead of a full rebuild per message. Cells are formatted
+  for their column widths, so a width change (resize, preview toggle, divider
+  drag) rebuilds them — and `rebuildRows` builds with the widths the table will
+  actually render at (a fresh table computes them on its first sync). Ages are
+  formatted to the second, so a full rebuild also runs every 10 s.
+- **Settle**: while scrolling (wheel, up/down), the preview render, enrichment
+  fetch and `layout.json` write wait until the selection rests for 90 ms — one
+  coalesced timer, not one per event. What keys act on (the preview's PR, the
+  notification subject) still follows the cursor immediately. Clicks and
+  first/last jumps stay immediate. **Visible effect:** mid-flick the preview shows
+  the last settled PR and catches up as you stop.
+- **Enrichment results re-render the preview only if they're for the PR on show**
+  (`SetEnrichedPR` now reports whether it applied).
+- **View memos**: the list viewport, table, section and preview reuse their last
+  frame while their inputs are unchanged. Caches sit behind pointers because
+  those `View`s have value receivers. `TestViewMemos_NeverServeAStaleFrame`
+  compares against a never-rendered model replayed through the same steps, and
+  holds every tab's cells to a fresh rebuild.
+
+**Measuring, safely:** `BenchmarkResponsiveness` (per event) and
+`BenchmarkScrollDuringSync` (`behind_ms`) run offline on synthetic data. Don't
+loop live probes against the real config: each run fetches every tab twice plus
+enrichments, and repeated runs tripped GitHub's GraphQL rate limit (and the
+startup prewarm opened a browser tab per run — `main_test.go` now stubs the
+browser for this package).
+
+**Ruled out, for the record:** bubbletea's renderer writes each frame to the
+terminal while holding a lock the event loop also takes, so a terminal that
+can't keep up would freeze input. Measured output here is ~0.02–0.05 MB/s —
+far below what Terminal.app drains — so it wasn't the cause. No process launch
+or network call runs on the event loop either; all are inside `tea.Cmd`s.
+
 ## Instances
 
 An **instance** scopes persisted state (layout height + selection). Identity:
