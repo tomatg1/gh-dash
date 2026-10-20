@@ -306,18 +306,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ctx.View != config.RepoView {
 					cmds = append(cmds, currSection.FetchNextPageSectionRows()...)
 				}
+				m.userMovedSelection(currSection)
 				cmd = m.onViewedRowChanged()
 			}
 
 		case key.Matches(msg, m.keys.Up):
 			if currSection != nil {
 				currSection.PrevRow()
+				m.userMovedSelection(currSection)
 				cmd = m.onViewedRowChanged()
 			}
 
 		case key.Matches(msg, m.keys.FirstLine):
 			if currSection != nil {
 				currSection.FirstItem()
+				m.userMovedSelection(currSection)
 				cmd = m.onViewedRowChanged()
 			}
 
@@ -327,6 +330,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, currSection.FetchNextPageSectionRows()...)
 				}
 				currSection.LastItem()
+				m.userMovedSelection(currSection)
 				cmd = m.onViewedRowChanged()
 			}
 
@@ -1055,6 +1059,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				currSection.SetCurrRow(i)
+				m.userMovedSelection(currSection)
 				cmds = append(cmds, m.onViewedRowChanged())
 
 				// Rebuild the section's rows so the PREVIOUSLY selected row loses
@@ -1100,6 +1105,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				currSection.PrevRow()
 			}
+			m.userMovedSelection(currSection)
 			cmds = append(cmds, m.onViewedRowChanged())
 		}
 
@@ -1371,6 +1377,19 @@ func (m *Model) persistFilter(s section.Section) {
 		applied = ""
 	}
 	_ = saveFilter(m.layoutStateKey, s.GetConfig().Title, applied)
+}
+
+// userMovedSelection is called wherever INPUT moves the selection. If a refresh
+// is in flight, its pending restore would otherwise snap the cursor back to the
+// row selected when the refresh started; instead the user's latest choice becomes
+// the target -- by URL, so it survives the fresh rows arriving reordered.
+func (m *Model) userMovedSelection(s section.Section) {
+	if s == nil || !s.HasPendingSelection() {
+		return
+	}
+	if r := s.GetCurrRow(); r != nil {
+		s.SetPendingSelection(r.GetUrl())
+	}
 }
 
 // persistSelection remembers the current section's selected item so it can be

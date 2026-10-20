@@ -66,6 +66,12 @@ func (m *BaseModel) SetPendingSelection(url string) {
 	m.pendingSelection = url
 }
 
+// HasPendingSelection reports whether a rebuild is still waiting to restore a
+// selection -- i.e. a refresh is in flight.
+func (m *BaseModel) HasPendingSelection() bool {
+	return m.pendingSelection != ""
+}
+
 // RestoreSelection moves the cursor to the row whose URL matches the pending
 // selection, then clears the pending state. urls[i] is the URL of row i (same
 // order as the table rows). No-op when nothing is pending or the item is gone
@@ -187,6 +193,7 @@ type Section interface {
 	GetItemPluralForm() string
 	GetTotalCount() int
 	SetPendingSelection(url string)
+	HasPendingSelection() bool
 }
 
 type Identifier interface {

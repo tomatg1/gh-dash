@@ -410,7 +410,7 @@ func FetchAllSections(
 					sectionModel.SetPendingSelection(r.GetUrl())
 				}
 				sectionModel.Table.SetRows(sectionModel.BuildRows())
-				sectionModel.Table.SetCurrItem(old.Table.GetCurrItem())
+				sectionModel.Table.RestoreScroll(old.Table.ScrollState())
 				// Carry the search UI too, or a filter being typed is destroyed
 				// mid-keystroke and an applied one reverts to the configured filter.
 				if cmd := sectionModel.RestoreSearchState(old.GetSearchState()); cmd != nil {

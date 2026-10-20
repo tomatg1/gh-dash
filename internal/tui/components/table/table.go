@@ -158,6 +158,18 @@ func RowZoneID(rowID int) string {
 	return fmt.Sprintf("row-%d", rowID)
 }
 
+// ScrollState is where the rows are scrolled to; see listviewport.ScrollState.
+func (m *Model) ScrollState() (top, curr int) {
+	return m.rowsViewport.ScrollState()
+}
+
+// RestoreScroll restores a ScrollState taken from the table this one replaces,
+// so the selected row stays on the same screen line across a rebuild.
+func (m *Model) RestoreScroll(top, curr int) {
+	m.rowsViewport.RestoreScroll(top, curr)
+	m.SyncViewPortContent()
+}
+
 // SetCurrItem selects an absolute row index. Used by mouse clicks.
 func (m *Model) SetCurrItem(id int) int {
 	currItem := m.rowsViewport.SetCurrItem(id)

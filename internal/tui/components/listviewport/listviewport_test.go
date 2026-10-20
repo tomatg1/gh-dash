@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/constants"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/context"
 )
@@ -128,4 +130,46 @@ func TestNextItemAtLastItem(t *testing.T) {
 	if m.GetCurrItem() != 9 {
 		t.Errorf("expected currId=9, got %d", m.GetCurrItem())
 	}
+}
+
+// SetNumItems runs on every row rebuild -- which used to mean every message, a
+// scroll event included. It must keep the visible window where the scroll left
+// it. Recomputing bottomBoundId as if the list were at the top (while
+// topBoundId and the scroll offset stayed put) shrank the window, so after a
+// direction reversal the next scroll-down moved the LIST instead of the cursor:
+// the highlight froze mid-screen and the rows slid underneath it.
+func TestSetNumItems_KeepsTheScrolledWindow(t *testing.T) {
+	m := newTestModel(testModelOpts{numItems: 30, viewportHeight: 5, itemHeight: 1})
+
+	for range 12 { // past a page: window scrolled to items 8..12, cursor at 12
+		m.NextItem()
+	}
+	for range 3 { // back up within the window: cursor 9, window unchanged
+		m.PrevItem()
+	}
+	require.Equal(t, 9, m.GetCurrItem())
+	require.Equal(t, 8, m.topBoundId)
+
+	m.SetNumItems(30) // a rebuild with the same rows
+
+	m.NextItem() // cursor 10: still inside the window, so nothing may scroll
+	require.Equal(t, 10, m.GetCurrItem())
+	require.Equal(t, 8, m.topBoundId, "the window must not scroll while the cursor is inside it")
+	require.Equal(t, 12, m.bottomBoundId)
+}
+
+// A list that shrank under a scrolled window must not leave the window pointing
+// past its end.
+func TestSetNumItems_ClampsTheWindowWhenTheListShrinks(t *testing.T) {
+	m := newTestModel(testModelOpts{numItems: 30, viewportHeight: 5, itemHeight: 1})
+	for range 20 {
+		m.NextItem()
+	}
+
+	m.SetNumItems(10)
+
+	require.LessOrEqual(t, m.bottomBoundId, 9, "the window must end inside the list")
+	require.Equal(t, 4, m.bottomBoundId-m.topBoundId, "the window keeps its height")
+	require.LessOrEqual(t, m.GetCurrItem(), 9, "the cursor must stay inside the list")
+	require.GreaterOrEqual(t, m.GetCurrItem(), m.topBoundId, "the cursor must stay inside the window")
 }

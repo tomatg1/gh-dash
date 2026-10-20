@@ -874,7 +874,7 @@ func FetchAllSections(
 					sectionModel.SetPendingSelection(r.GetUrl())
 				}
 				sectionModel.Table.SetRows(sectionModel.BuildRows())
-				sectionModel.Table.SetCurrItem(oldSection.Table.GetCurrItem())
+				sectionModel.Table.RestoreScroll(oldSection.Table.ScrollState())
 			}
 		}
 
