@@ -1,7 +1,6 @@
 package data
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -118,17 +117,44 @@ func SortByMergedAtDesc(prs []PullRequestData) {
 	})
 }
 
-// MergedSinceQuery derives a "recently merged" search filter from a section's
-// filter: swap is:open for is:merged (or append is:merged) and constrain to PRs
-// merged at or after `since`. Everything else in the filter (org:/repo:/author:/
-// labels) is kept, so it mirrors the section's scope.
-func MergedSinceQuery(baseFilter string, since time.Time) string {
-	f := baseFilter
+// MergedQuery derives the "recently merged" search from a section's filter:
+// is:open becomes is:merged (or is:merged is appended), and everything else that
+// scopes it (org:/repo:/author:/labels/created:) is kept.
+//
+// It deliberately has no merged:>= date qualifier. During GitHub's 2026-10-22
+// search incident that qualifier returned nothing, while a plain is:merged search
+// still returned the merges with their mergedAt -- so the window is applied to
+// mergedAt afterwards, by MergedSince, which doesn't depend on it.
+//
+// Without the date bound the search returns up to the section's limit, so the
+// order decides what makes it in. The filter's own sort: token is dropped so the
+// sort:updated gh-dash appends takes effect: merging updates a PR, so anything
+// merged in the window was updated in the window and comes first. (Sorted by
+// creation instead, a PR opened weeks ago and merged today could miss the cut.)
+func MergedQuery(baseFilter string) string {
+	var kept []string
+	for _, tok := range strings.Fields(baseFilter) {
+		if strings.HasPrefix(tok, "sort:") {
+			continue
+		}
+		kept = append(kept, tok)
+	}
+	f := strings.Join(kept, " ")
 	if strings.Contains(f, "is:open") {
-		f = strings.Replace(f, "is:open", "is:merged", 1)
-	} else {
-		f = strings.TrimSpace(f + " is:merged")
+		return strings.Replace(f, "is:open", "is:merged", 1)
 	}
 
-	return fmt.Sprintf("%s merged:>=%s", f, since.UTC().Format(time.RFC3339))
+	return strings.TrimSpace(f + " is:merged")
+}
+
+// MergedSince keeps the PRs merged at or after since, in their original order.
+func MergedSince(prs []PullRequestData, since time.Time) []PullRequestData {
+	var out []PullRequestData
+	for _, pr := range prs {
+		if pr.MergedAt != nil && !pr.MergedAt.Before(since) {
+			out = append(out, pr)
+		}
+	}
+
+	return out
 }

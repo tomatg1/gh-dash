@@ -695,12 +695,13 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 		// whose results would be filtered straight back out.
 		if m.PageInfo == nil && !m.Ctx.HideMergedPRs {
 			if w := m.Ctx.Config.Defaults.ResolveMergedWindow(m.Config.ShowMergedFor); w > 0 {
-				mergedQ := data.MergedSinceQuery(m.GetFilters(), time.Now().Add(-w))
-				if mres, mErr := data.FetchPullRequests(mergedQ, *limit, nil); mErr == nil {
-					// Newest merge first; search returned them in the filter's own
-					// sort order, which is not merge order.
-					data.SortByMergedAtDesc(mres.Prs)
-					res.Prs = append(res.Prs, mres.Prs...)
+				// No date qualifier in the search; the window is applied to
+				// mergedAt here (see data.MergedQuery for why).
+				if mres, mErr := data.FetchPullRequests(data.MergedQuery(m.GetFilters()), *limit, nil); mErr == nil {
+					recent := data.MergedSince(mres.Prs, time.Now().Add(-w))
+					// Newest merge first: search returns them by last update, not merge.
+					data.SortByMergedAtDesc(recent)
+					res.Prs = append(res.Prs, recent...)
 				}
 			}
 		}

@@ -430,8 +430,9 @@ ever enqueue, never dequeue). Unlike search, `resource(url:)` does compute
 A PR filtered by `is:open` vanishes the instant it merges (e.g. through the
 queue). Set `defaults.showMergedFor` (a Go duration like `"1h"`; empty/`"0"` =
 off) and each PR section runs a **second** search — the section's filter with
-`is:open`→`is:merged` plus `merged:>=<now-window>` — and appends the results
-(they render with the merged icon). Global default, overridable per section:
+`is:open`→`is:merged`, newest-updated first — keeps the PRs whose `mergedAt`
+falls inside the window, and appends them (they render with the merged icon).
+Global default, overridable per section:
 
 ```yaml
 defaults:
@@ -443,6 +444,20 @@ prSections:
 
 Fetched only on the first page (not while paginating). `MergedSinceQuery` in
 `data/mergequeue.go`; wired in the PR section's fetch.
+
+**The window is applied in gh-dash, not by the search** (`local.26`). It used
+to be a `merged:>=<time>` qualifier. During GitHub's 2026-10-22 search incident
+that qualifier returned **nothing** — full timestamp or plain date — while a
+plain `is:merged` search still returned the same PRs with their `mergedAt`. So
+the search now has no date bound (`data.MergedQuery`) and `data.MergedSince`
+keeps the merges inside the window. Without the bound, the result limit decides
+what makes it in, so the section's own `sort:` token is dropped and gh-dash's
+appended `sort:updated` applies: merging updates a PR, so everything merged in the
+window comes first. (Sorted by creation, a PR opened weeks ago and merged today
+could fall outside the limit.) Measured against the old query on live data: the
+same 44 merges whenever GitHub answered properly; during the incident the old
+query returned 0 while this one returned 44. It cannot help when GitHub answers
+an ordinary search with an empty result — gh-dash can't tell that from "no PRs".
 
 **Ordered newest-merge-first.** Search returns results in the *filter's* sort order
 — with `sort:created-desc` in the filter, a PR opened days ago and merged a minute
