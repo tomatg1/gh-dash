@@ -61,6 +61,43 @@ func TestSetPendingPRAction(t *testing.T) {
 			expectedAction: "pr_approveWorkflows",
 			expectedPrompt: "Are you sure you want to approve all workflows for PR #300? (y/N)",
 		},
+		// A prompt saying "merge" for an action that queues -- or that squashes --
+		// misreports what confirming does, so each resolved action names itself.
+		{
+			name:           "enqueue action says the queue, not merge",
+			action:         "enqueue",
+			prNumber:       400,
+			expectedAction: "pr_enqueue",
+			expectedPrompt: "Add PR #400 to the merge queue? (y/N)",
+		},
+		{
+			name:           "dequeue action says the queue, not merge",
+			action:         "dequeue",
+			prNumber:       401,
+			expectedAction: "pr_dequeue",
+			expectedPrompt: "Remove PR #401 from the merge queue? (y/N)",
+		},
+		{
+			name:           "merge_squash action names the strategy",
+			action:         "merge_squash",
+			prNumber:       402,
+			expectedAction: "pr_merge_squash",
+			expectedPrompt: "Squash and merge PR #402? (y/N)",
+		},
+		{
+			name:           "merge_merge action names the strategy",
+			action:         "merge_merge",
+			prNumber:       403,
+			expectedAction: "pr_merge_merge",
+			expectedPrompt: "Merge PR #403 with a merge commit? (y/N)",
+		},
+		{
+			name:           "merge_rebase action names the strategy",
+			action:         "merge_rebase",
+			prNumber:       404,
+			expectedAction: "pr_merge_rebase",
+			expectedPrompt: "Rebase and merge PR #404? (y/N)",
+		},
 	}
 
 	for _, tt := range tests {

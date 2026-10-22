@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
@@ -84,6 +85,9 @@ type SectionConfig struct {
 	Filters string
 	Limit   *int      `yaml:"limit,omitempty"`
 	Type    *ViewType `yaml:"type,omitempty"`
+	// ShowMergedFor overrides defaults.showMergedFor for this section (a Go
+	// duration like "1h"; empty = inherit the default). See Defaults.ShowMergedFor.
+	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
 }
 
 type PrsSectionConfig struct {
@@ -92,6 +96,8 @@ type PrsSectionConfig struct {
 	Limit   *int            `yaml:"limit,omitempty"`
 	Layout  PrsLayoutConfig `yaml:"layout,omitempty"`
 	Type    *ViewType       `yaml:"type,omitempty"`
+	// ShowMergedFor overrides defaults.showMergedFor for this section.
+	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
 }
 
 type IssuesSectionConfig struct {
@@ -183,6 +189,18 @@ type LayoutConfig struct {
 	Issues IssuesLayoutConfig `yaml:"issues,omitempty"`
 }
 
+// MouseMode controls whether the dashboard captures the terminal's mouse
+// events. Capture is what makes UI elements clickable, but it also intercepts
+// click-drag — which is what terminals use for native text selection. Set
+// `none` to release the mouse and select/copy text normally.
+type MouseMode string
+
+const (
+	MouseModeCellMotion MouseMode = "cellMotion" // clicks, release, wheel, drag (default)
+	MouseModeAllMotion  MouseMode = "allMotion"  // also motion with no button held
+	MouseModeNone       MouseMode = "none"       // no capture; native text selection
+)
+
 type Defaults struct {
 	Preview                PreviewConfig `yaml:"preview"`
 	PrsLimit               int           `yaml:"prsLimit"`
@@ -192,7 +210,121 @@ type Defaults struct {
 	View                   ViewType      `yaml:"view"`
 	Layout                 LayoutConfig  `yaml:"layout,omitempty"`
 	RefetchIntervalMinutes int           `yaml:"refetchIntervalMinutes,omitempty"`
+	RefetchIntervalSeconds int           `yaml:"refetchIntervalSeconds,omitempty"`
 	DateFormat             string        `yaml:"dateFormat,omitempty"`
+	MouseMode              MouseMode     `yaml:"mouseMode,omitempty"`
+	// URLOpenCommand, when set, is used to open PR/issue URLs instead of the OS
+	// default browser. Rendered as a text/template with {{.URL}} and run via
+	// `sh -c`, so links can be routed to a specific browser or profile.
+	URLOpenCommand string `yaml:"urlOpenCommand,omitempty"`
+	// MouseWheelReverse flips the wheel-to-selection direction. The default is
+	// tuned for macOS natural scrolling (a two-finger-down gesture moves the
+	// selection DOWN the list); set true for a classic mouse / non-natural setup.
+	MouseWheelReverse bool `yaml:"mouseWheelReverse,omitempty"`
+	// DisableBrowserPrewarm turns off the startup pre-warm. When urlOpenCommand
+	// is set, gh-dash opens the first configured repo's PR list on launch (in the
+	// background) so the browser/profile window is ready and later opens are
+	// instant. Set true to skip it.
+	DisableBrowserPrewarm bool `yaml:"disableBrowserPrewarm,omitempty"`
+	// MergeQueueRepos lists repos ("owner/name", or "*" for all) whose PRs the
+	// `m` action toggles on the native merge queue -- enqueue when out, dequeue
+	// when already queued (GitHub's enqueue/dequeuePullRequest) -- instead of
+	// running `gh pr merge`. Needed when a repo has a merge queue but "Allow
+	// auto-merge" disabled, which makes `gh pr merge` fail with "Auto merge is
+	// not allowed for this repository".
+	MergeQueueRepos []string `yaml:"mergeQueueRepos,omitempty"`
+	// MergeMethod is the strategy `m` uses on repos WITHOUT a merge queue:
+	// "squash", "merge", or "rebase". Set it and the merge runs non-interactively
+	// -- without a method flag `gh pr merge` prompts for the strategy and then
+	// for a final submit, on every single PR. Empty = ask once per repo and
+	// remember the answer globally (see internal/prefs).
+	MergeMethod string `yaml:"mergeMethod,omitempty"`
+	// MergeMethodRepos overrides MergeMethod for specific repos
+	// ("owner/name" -> "squash"|"merge"|"rebase").
+	MergeMethodRepos map[string]string `yaml:"mergeMethodRepos,omitempty"`
+	// ShowMergedFor keeps recently-merged PRs in the PR list for a window after
+	// they merge (a Go duration like "1h"; empty/"0" = off). PR sections fetch a
+	// second query for `is:merged merged:>=<now-window>` and append the results,
+	// so a PR you just merged doesn't vanish. Overridable per section via
+	// PrsSectionConfig.ShowMergedFor.
+	ShowMergedFor string `yaml:"showMergedFor,omitempty"`
+}
+
+// MergeMethods are the strategies `gh pr merge` accepts as a flag. Passing one
+// is what makes the merge non-interactive: without it gh prompts for the method
+// AND for a final submit, per PR.
+var MergeMethods = []string{"squash", "merge", "rebase"}
+
+// ValidMergeMethod reports whether s names a merge strategy (case-insensitive).
+func ValidMergeMethod(s string) bool {
+	for _, m := range MergeMethods {
+		if strings.EqualFold(s, m) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ResolveMergeMethod returns the configured merge strategy for a repo: the
+// per-repo mergeMethodRepos entry if present, else the global mergeMethod.
+// Returns "" when nothing valid is configured (the caller then falls back to the
+// remembered per-repo choice, and finally to asking once).
+func (d Defaults) ResolveMergeMethod(repoNameWithOwner string) string {
+	for repo, method := range d.MergeMethodRepos {
+		if strings.EqualFold(repo, repoNameWithOwner) && ValidMergeMethod(method) {
+			return strings.ToLower(method)
+		}
+	}
+	if ValidMergeMethod(d.MergeMethod) {
+		return strings.ToLower(d.MergeMethod)
+	}
+
+	return ""
+}
+
+// ResolveMergedWindow returns the recently-merged window for a PR section: the
+// section's ShowMergedFor if set, else the global default. Returns 0 (off) when
+// unset, "0", or unparseable.
+func (d Defaults) ResolveMergedWindow(sectionShowMergedFor string) time.Duration {
+	v := sectionShowMergedFor
+	if v == "" {
+		v = d.ShowMergedFor
+	}
+	if v == "" {
+		return 0
+	}
+	dur, err := time.ParseDuration(v)
+	if err != nil || dur <= 0 {
+		return 0
+	}
+
+	return dur
+}
+
+// UsesMergeQueue reports whether the `m` action should drive the native merge
+// queue (enqueue/dequeue) for a repo, rather than `gh pr merge`. Matches an
+// exact "owner/name" (case-insensitive) or the "*" wildcard.
+func (d Defaults) UsesMergeQueue(repoNameWithOwner string) bool {
+	for _, r := range d.MergeQueueRepos {
+		if r == "*" || strings.EqualFold(r, repoNameWithOwner) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// EffectiveRefetchSeconds is the auto-refresh cadence in seconds.
+// refetchIntervalSeconds takes precedence over refetchIntervalMinutes when set
+// (>0), so sub-minute intervals are possible; otherwise the minute value is
+// used. A result of 0 means auto-refresh is disabled.
+func (d Defaults) EffectiveRefetchSeconds() int {
+	if d.RefetchIntervalSeconds > 0 {
+		return d.RefetchIntervalSeconds
+	}
+
+	return d.RefetchIntervalMinutes * 60
 }
 
 type RepoConfig struct {
@@ -358,6 +490,7 @@ func (parser ConfigParser) getDefaultConfig() Config {
 			NotificationsLimit:     20,
 			View:                   PRsView,
 			RefetchIntervalMinutes: 30,
+			MouseMode:              MouseModeCellMotion,
 			Layout: LayoutConfig{
 				Prs: PrsLayoutConfig{
 					UpdatedAt: ColumnConfig{

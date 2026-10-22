@@ -28,6 +28,7 @@ type PRKeyMap struct {
 	WatchChecks          key.Binding
 	ApproveWorkflows     key.Binding
 	ToggleSmartFiltering key.Binding
+	ToggleMerged         key.Binding
 	ViewIssues           key.Binding
 }
 
@@ -88,6 +89,10 @@ var PRKeys = PRKeyMap{
 		key.WithKeys("m"),
 		key.WithHelp("m", "merge"),
 	),
+	ToggleMerged: key.NewBinding(
+		key.WithKeys("M"),
+		key.WithHelp("M", "show/hide merged"),
+	),
 	Update: key.NewBinding(
 		key.WithKeys("u"),
 		key.WithHelp("u", "update pr from base branch"),
@@ -129,6 +134,7 @@ func PRFullHelp() []key.Binding {
 		PRKeys.WatchChecks,
 		PRKeys.ApproveWorkflows,
 		PRKeys.ToggleSmartFiltering,
+		PRKeys.ToggleMerged,
 		PRKeys.ViewIssues,
 	}
 }
@@ -192,6 +198,8 @@ func rebindPRKeys(keys []config.Keybinding) error {
 			key = &PRKeys.WatchChecks
 		case "approveWorkflows":
 			key = &PRKeys.ApproveWorkflows
+		case "toggleMerged":
+			key = &PRKeys.ToggleMerged
 		case "viewIssues":
 			key = &PRKeys.ViewIssues
 		case "summaryViewMore":

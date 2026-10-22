@@ -13,3 +13,6 @@ testdata/gh-schema.graphql
 .task/
 /sponsors.json
 resterm.env.json
+
+# Session handoff notes: operator-specific, never committed
+SESSION-HANDOFF.md

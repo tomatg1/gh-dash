@@ -45,9 +45,12 @@ var DefaultTheme = &Theme{
 		Light: lipgloss.ANSIColor(8),
 		Dark:  lipgloss.ANSIColor(7),
 	},
+	// The selected row's background (also the active tab, key hints and the
+	// preview's title bar). 238 rather than 236: on a near-black terminal 236 was
+	// barely distinguishable from the background.
 	SelectedBackground: compat.AdaptiveColor{
 		Light: lipgloss.ANSIColor(7),
-		Dark:  lipgloss.ANSIColor(236),
+		Dark:  lipgloss.ANSIColor(238),
 	},
 	FaintBorder: compat.AdaptiveColor{
 		Light: lipgloss.ANSIColor(254),

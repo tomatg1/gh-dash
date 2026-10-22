@@ -130,8 +130,34 @@ func (t *TestSection) PrevRow() int {
 	panic("unimplemented")
 }
 
+// SetCurrRow implements section.Section.
+func (t *TestSection) SetCurrRow(int) int {
+	panic("unimplemented")
+}
+
+// SetPendingSelection implements section.Section.
+func (t *TestSection) SetPendingSelection(string) {}
+
+// HasPendingSelection implements section.Section.
+func (t *TestSection) HasPendingSelection() bool { return false }
+
 // ResetFilters implements section.Section.
 func (t *TestSection) ResetFilters() {
+	panic("unimplemented")
+}
+
+// GetSearchValue implements section.Section.
+func (t *TestSection) GetSearchValue() string {
+	panic("unimplemented")
+}
+
+// GetSearchState implements section.Section.
+func (t *TestSection) GetSearchState() section.SearchState {
+	panic("unimplemented")
+}
+
+// RestoreSearchState implements section.Section.
+func (t *TestSection) RestoreSearchState(section.SearchState) tea.Cmd {
 	panic("unimplemented")
 }
 
@@ -162,6 +188,11 @@ func (t *TestSection) SetIsSearching(val bool) tea.Cmd {
 
 // SetPromptConfirmationAction implements section.Section.
 func (t *TestSection) SetPromptConfirmationAction(action string) {
+	panic("unimplemented")
+}
+
+// SetPromptConfirmationKey implements section.Section.
+func (t *TestSection) SetPromptConfirmationKey(key string) {
 	panic("unimplemented")
 }
 

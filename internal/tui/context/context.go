@@ -50,10 +50,13 @@ type ProgramContext struct {
 	ConfigFlag           string
 	Version              string
 	View                 config.ViewType
-	Error                error
-	StartTask            func(task Task) tea.Cmd
-	Theme                theme.Theme
-	Styles               Styles
+	// HideMergedPRs is the `M` toggle: when set, recently-merged PRs are neither
+	// fetched nor kept in a section's rows. Persisted per dashboard instance.
+	HideMergedPRs bool
+	Error         error
+	StartTask     func(task Task) tea.Cmd
+	Theme         theme.Theme
+	Styles        Styles
 }
 
 func (ctx *ProgramContext) HasGHRepo() bool {

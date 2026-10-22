@@ -230,6 +230,16 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		}
 
 		if m.IsPromptConfirmationFocused() {
+			// y/N confirmations resolve on one keystroke — including a repeat of
+			// the key that opened them. Text-entry prompts fall through to the
+			// input and still need Enter.
+			switch m.DecideConfirmKey(msg.String()) {
+			case section.ConfirmAccept:
+				return m, m.closePrompt(m.runConfirmedAction(m.GetPromptConfirmationAction()))
+			case section.ConfirmCancel:
+				return m, m.closePrompt(nil)
+			}
+
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				m.PromptConfirmationBox.Reset()
@@ -397,6 +407,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)
 			m.Table.SetRows(m.BuildRows())
+			m.restoreSelection()
 			m.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 
@@ -530,6 +541,16 @@ func (m *Model) GetCurrRow() data.RowData {
 		return nil
 	}
 	return &m.Notifications[idx]
+}
+
+// restoreSelection re-selects, by URL, whatever was selected before a refresh
+// rebuilt this section.
+func (m *Model) restoreSelection() {
+	urls := make([]string, len(m.Notifications))
+	for i := range m.Notifications {
+		urls[i] = m.Notifications[i].GetUrl()
+	}
+	m.RestoreSelection(urls)
 }
 
 func (m *Model) GetCurrNotification() *notificationrow.Data {
@@ -837,10 +858,23 @@ func FetchAllSections(
 				sectionModel.LastFetchTaskId = oldSection.LastFetchTaskId
 				sectionModel.sessionMarkedRead = oldSection.sessionMarkedRead
 				sectionModel.sessionMarkedDone = oldSection.sessionMarkedDone
-				// Preserve user's filter state - don't reset on refresh
+				// Preserve the user's filter state -- including text typed but not
+				// yet applied, and whether the bar is open. Restoring only the
+				// applied value (as this used to) still wiped an edit in progress.
 				sectionModel.IsFilteredByCurrentRemote = oldSection.IsFilteredByCurrentRemote
-				sectionModel.SearchValue = oldSection.SearchValue
-				sectionModel.SearchBar.SetValue(oldSection.SearchValue)
+				if cmd := sectionModel.RestoreSearchState(oldSection.GetSearchState()); cmd != nil {
+					fetchCmds = append(fetchCmds, cmd)
+				}
+				// Keep the cursor on the same notification across the refresh.
+				// Render the carried-over rows with the cursor already in place NOW,
+				// so the list doesn't flash to the top row while the fetch is in
+				// flight. The pending-selection URL stays armed to re-pin by URL
+				// once the fresh, possibly reordered data lands.
+				if r := oldSection.GetCurrRow(); r != nil {
+					sectionModel.SetPendingSelection(r.GetUrl())
+				}
+				sectionModel.Table.SetRows(sectionModel.BuildRows())
+				sectionModel.Table.RestoreScroll(oldSection.Table.ScrollState())
 			}
 		}
 
@@ -1102,4 +1136,24 @@ func countNewIssueComments(issue data.IssueData, lastReadAt *time.Time) int {
 	}
 
 	return count
+}
+
+// closePrompt dismisses the confirmation prompt, batching whatever the answer
+// kicked off with the blink command.
+func (m *Model) closePrompt(cmd tea.Cmd) tea.Cmd {
+	m.PromptConfirmationBox.Reset()
+
+	return tea.Batch(cmd, m.SetIsPromptConfirmationShown(false))
+}
+
+// runConfirmedAction performs the action the prompt was confirming.
+func (m *Model) runConfirmedAction(action string) tea.Cmd {
+	switch action {
+	case "done":
+		return m.markAsDone()
+	case "done_all":
+		return m.markAllAsDone()
+	}
+
+	return nil
 }

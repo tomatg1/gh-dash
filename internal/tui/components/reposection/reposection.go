@@ -92,6 +92,16 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 		}
 
 		if m.IsPromptConfirmationFocused() {
+			// y/N confirmations resolve on one keystroke — including a repeat of
+			// the key that opened them. Text-entry prompts fall through to the
+			// input and still need Enter.
+			switch m.DecideConfirmKey(msg.String()) {
+			case section.ConfirmAccept:
+				return m, m.closePrompt(m.runConfirmedAction(m.GetPromptConfirmationAction()))
+			case section.ConfirmCancel:
+				return m, m.closePrompt(nil)
+			}
+
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				m.PromptConfirmationBox.Reset()
@@ -563,4 +573,37 @@ func (m *Model) GetPagerContent() string {
 	spacer := s.Render(" ")
 	return m.Ctx.Styles.ListViewPort.PagerStyle.Render(
 		lipgloss.JoinHorizontal(lipgloss.Top, plus, spacer, minus, spacer, mod))
+}
+
+// closePrompt dismisses the confirmation prompt, batching whatever the answer
+// kicked off with the blink command.
+func (m *Model) closePrompt(cmd tea.Cmd) tea.Cmd {
+	m.PromptConfirmationBox.Reset()
+
+	return tea.Batch(cmd, m.SetIsPromptConfirmationShown(false))
+}
+
+// runConfirmedAction performs the y/N action the prompt was confirming. The
+// text-entry prompts (new branch, PR title) are handled on Enter instead.
+func (m *Model) runConfirmedAction(action string) tea.Cmd {
+	branch := m.getCurrBranch().Data.Name
+	sid := tasks.SectionIdentifier{Id: m.Id, Type: SectionType}
+	pr := findPRForRef(m.Prs, branch)
+
+	switch action {
+	case "delete":
+		return m.deleteBranch()
+	case "close":
+		return tasks.ClosePR(m.Ctx, sid, pr)
+	case "reopen":
+		return tasks.ReopenPR(m.Ctx, sid, pr)
+	case "ready":
+		return tasks.PRReady(m.Ctx, sid, pr)
+	case "merge":
+		return tasks.MergePR(m.Ctx, sid, pr)
+	case "update":
+		return tasks.UpdatePR(m.Ctx, sid, pr)
+	}
+
+	return nil
 }
